@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <!-- 项目级【可选】模板：刻意不写 localRepository 绝对路径、不写凭据、不写镜像。
+       原因：本机 ~/.m2/settings.xml 写死了 <LOCAL_PATH>/.m2/repository，
+       同事机器路径必然不同；使用本模板可让依赖回到各机器默认的 ~/.m2/repository，
+       并直连 Maven Central（或由使用者自行追加内网镜像）。
+
+       用法（二选一）：
+         1) ./mvnw clean package                       # 用各机器自己的 settings
+         2) ./mvnw -s .mvn/settings.xml clean package # 用本模板，绕开本机特殊配置
+
+       本模板不被 .mvn/maven.config 强制引用，避免覆盖同事本机的公司镜像配置。
+       如需内网镜像，请复制本文件后自行添加 <mirrors>，不要提交含凭据的配置。 -->
+</settings>

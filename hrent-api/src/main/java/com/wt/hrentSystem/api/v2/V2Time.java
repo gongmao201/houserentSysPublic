@@ -1,5 +1,6 @@
 package com.wt.hrentSystem.api.v2;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -17,18 +18,23 @@ public final class V2Time {
     private V2Time() {
     }
 
+    /**注意：java.sql.Date / java.sql.Timestamp 重写了 toInstant() 并直接抛 UnsupportedOperationException，必须走 getTime() */
+    private static Instant instant(Date date) {
+        return Instant.ofEpochMilli(date.getTime());
+    }
+
     public static String iso(Date date) {
         if (date == null) {
             return null;
         }
-        return date.toInstant().atZone(Req.ZONE).format(ISO);
+        return instant(date).atZone(Req.ZONE).format(ISO);
     }
 
     public static String day(Date date) {
         if (date == null) {
             return null;
         }
-        return date.toInstant().atZone(Req.ZONE).toLocalDate().format(DAY);
+        return instant(date).atZone(Req.ZONE).toLocalDate().format(DAY);
     }
 
     public static String day(Object raw) {

@@ -1,5 +1,5 @@
 /out/
-!.mvn/wrapper/maven-wrapper.jar
+# Maven Wrapper 必须入库（消除同事机器 mvn 安装位置差异），放行规则见文件末尾
 *.zip
 *.docs
 /hrent-api/target/
@@ -18,9 +18,13 @@
 *.iws
 *.iml
 *.ipr
-.mvn
-mvnw
-mvnw.cmd
+# Maven Wrapper：放行项目内构建入口（原规则会忽略它们，导致同事 clone 不到）
+!.mvn/
+.mvn/*
+!.mvn/wrapper/
+!.mvn/wrapper/maven-wrapper.properties
+!.mvn/wrapper/maven-wrapper.jar
+!.mvn/settings.xml
 
 ### NetBeans ###
 /nbproject/private/
@@ -29,3 +33,10 @@ mvnw.cmd
 /dist/
 /nbdist/
 /.nb-gradle/
+
+### 运行期产物与本地配置（禁止入库）###
+logs/
+*.pid
+.env
+.env.local
+static/images/

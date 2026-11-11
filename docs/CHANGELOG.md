@@ -135,7 +135,7 @@
 | 持久层 | 12 个新模块 Dao + XML 齐备（review/repair_order/bill_item/ai_feedback/lease_log 等），含 `updateStatusWithVersion`、`findByIdemKey` 等 |
 | 业务层 | `/api/v2` 下 **0 个** Controller / Service；新功能接口全部未实现 |
 | 前端 | Vue2 + ElementUI + webpack3，仅 11 个存量页面，无 v2 页面与 v2 请求封装 |
-| 编译环境 | JDK 17.0.14、Node 22.22.2；Maven 在 `<PROJECT_ROOT>/`（不在 PATH）；本地仓库 570 个 jar |
+| 编译环境 | JDK 17.0.14、Node 22.22.2；Maven 在 `<LOCAL_PATH>/.m2/apache-maven-3.9.16/bin/mvn.cmd`（不在 PATH）；本地仓库 570 个 jar |
 | 启动配置 | `server.port=8888`、`context-path=/hrent`（与 13 号文档 §2.1 写的 8080 无 context-path **不一致**） |
 
 ### 6.2 待定登记（详见 `docs/19_待定事项清单.md`）
@@ -235,4 +235,149 @@
 | 配置改动 | 3 处 | `application.yml` +2 键、router、MyMenu |
 | 文档 | 8 份 | CHANGELOG、19–22、根 / api / web 三份 README |
 | 待定 | 13 项 | T-01 ~ T-13，见 `docs/19` |
+
+---
+
+| B7 | 2026-11-11 | 公开发布：白名单复制 1071 个文件到**独立发布副本**，脱敏 63+ 处、二次补齐 5 个文件；推送至 GitHub `gongmao201/houserentSysPublic`（commit `d8ebdf4`） | 远端重新克隆验证：871 个跟踪文件、敏感扫描 **HITS=0**、排除项残留 0；`git ls-remote` 确认 main = `d8ebdf4` |
+
+**B7 关键信息**：
+
+- **源项目零改动**：所有替换只在 `/tmp/houserent-release` 发布副本中进行，源工作副本的业务代码、配置、文档一律未动（`git status` 的 16 项均为 B1–B6 的既有改动）。
+- **历史处理**：本地仓库唯一的 `Initial commit` 含未脱敏文件，未推送；目标仓库在其原有 `LICENSE` 提交上追加一次**全新提交**，公共历史不含本地敏感快照。提交作者使用中性身份 `houserent-public <noreply@example.invalid>`，未沿用全局 git 的个人邮箱。
+- **清理类型**：微信 AppID/AppSecret 明文、腾讯地图 Key、JWT 硬编码密钥、数据库口令/用户名/连接串、演示口令明文与哈希、内网 IP、本机绝对路径、作者手机号/微信/QQ/QQ 群、第三方推广、示例数据姓名/手机号/邮箱、页面截图章节。
+- **排除类型**：`.workbuddy/`、3 个 `.rar`、`.docx` 交付版、`picture/`+`output/`+`docs/_work/` 截图与中间产物、`node_modules`/`target`/`hrent-web/dist`、重复的 `README2.md`（含明文密钥）。程序 UI 图标与小程序开源 UI 组件目录保留。
+- **占位符**：`<YOUR_WECHAT_APPID>` / `<YOUR_WECHAT_APPSECRET>` / `<YOUR_QQMAP_KEY>` / `<SET_VIA_ENV_JWT_SECRET>` / `<DEMO_PASSWORD>`；`application.yml` 改为 `${DB_URL:...}`、`${DB_USERNAME:...}`、`${DB_PASSWORD:}`、`${JWT_SECRET:}` 环境变量优先。配置方法见仓库根目录 `PUBLISH_NOTES.md`。
+- **提示**：目标仓库原有 `Initial commit` 的作者邮箱为仓库所有者自身的 Git 身份，未改写（改写需 force push，风险更高，未授权）；如需连历史一并脱敏，须显式授权后做历史重写。
+- 原始源码来自第三方分发包，公开再分发前请确认授权与署名要求（已写入 `PUBLISH_NOTES.md` 第五节）。
+
+---
+
+| B8 | 2026-11-11 | 裁决 5 项 P0 待定（T-01/02/03/07/10）+ 落地 Maven Wrapper 与配套配置，输出 `docs/23_P0决策与验证闭环.md` | Wrapper 生成实测 `BUILD SUCCESS`；两份 `.gitignore` 已放行 `mvnw*`/`.mvn/wrapper/`；`jaxb-api:2.3.1` 已入 `pom.xml` |
+
+**B8 关键信息**：
+
+- **T-10（mvn 位置不一致）裁决为方案 A · Maven Wrapper**：`mvn -N wrapper:wrapper -Dmaven=3.9.16 -Dtype=only-script` 生成 `hrent-api/mvnw`、`mvnw.cmd`、`.mvn/wrapper/maven-wrapper.properties`（仅 3 个文件、约 20 KB）。**否决**把 570 个 jar 的 `.m2/repository` 提交进仓库（体积/许可证/凭据风险），也否决「只写探测脚本」（仍依赖机器已装 Maven 且版本不定）。
+- **根因**：用户级 `~/.m2/settings.xml` 把 `localRepository` 写死为 `<LOCAL_PATH>/.m2/repository`，同事机器路径必然不同；叠加两份 `.gitignore` 原本忽略 `.mvn`/`mvnw`，导致 Wrapper 根本进不了仓库。
+- **配套**：新增 `hrent-api/.mvn/settings.xml` 作为**可选模板**（无绝对路径、无凭据、无镜像硬编码），不通过 `maven.config` 强制引用，避免覆盖同事本机镜像配置；`.mvn/jvm.config` 不生成（JDK8 兼容）。
+- 另 4 项裁决：T-01 以代码实测 `8888 + /hrent` 为准、只改文档；T-02 保留 `LeaseService` 单点枚举映射不改 DDL；T-03 维持「仅 CREATED 可取消」；T-07 不升级 jjwt，`pom.xml` 加 `jaxb-api:2.3.1` 兜底。
+- 待确认假设 5 条（H1–H5）写入 `docs/23` §4，含「老接口快照基线需 QA 产出」——该假设不成立直接导致 B-1 阻塞。
+
+| B9 | 2026-11-11 | 按唯一优先级跑验证闭环：V1 构建 → V2 启动 → V3 用例 → V4 老接口回归；修复 4 个实测缺陷并回填 4 份文档 | V1 `BUILD SUCCESS`（3 tests / 0 fail，jar 29 MB）；V2 `Started in 21.155s`；V3 **32 PASS / 0 FAIL**；V4 103 接口 0 回归（2 个存量死接口除外） |
+
+**B9 关键信息（缺陷与实测数据）**：
+
+- **V3 三轮收敛**：27/5 → 29/3 → **32/0**。暴露并修复 3 个 v2 自身缺陷：
+  1. `V2Mapper.xml` 的 `leaseCols` 引用 `g.tenant_name`，但 `hrent_house_renting` 无该列（MySQL 1054）→ 删除该列；
+  2. `FileController.upload` 的 `@RequestParam("file")` 绑定先于鉴权，未登录返回 500 而非 600 → 改 `required=false` + 鉴权前置；
+  3. `V2Time.iso/day` 对 `java.sql.Date` 调 `toInstant()`，该方法在 JDBC 日期类型上**固定抛 `UnsupportedOperationException`** → 改 `Instant.ofEpochMilli(date.getTime())`。
+- **修复 1 个存量兼容缺陷（D4）**：MySQL 8 将 `system` 列为保留字，`MenuDao.xml` / `MessageDao.xml` 中该列未加反引号 → `/menu/getLoginMenu` 恒 500。**仅加反引号，不改逻辑**；两个文件在本次之前从未改动（`git status` 为空可证）。
+- **V4 口径**：103 个存量接口中，写语义 38 个 **SKIP**（`delete` 无 id 时 `where 1=1` 会清表，禁止在种子库实调）；实调 65 个读接口 → 49 个空参即通、14 个补 `{"pageNo":1,"pageSize":5}` 后通、**2 个恒 500 的死接口**（`/dict/get` 的 DAO SQL 用 `limit #{offset},#{limit}` 与 `BaseService.get(String id)` 参数冲突；`/houseResource/findAll` 未设 `currentUser` 触发 OGNL `source is null`）。两者 `hrent-web` 与小程序**均无调用**，不修，登记入 `docs/22` §8.2。
+- **阻塞 B-1（重要）**：老接口「改造前快照 diff」**无法执行** —— 基线 `pom.xml` 无 `jaxb-api`，JDK17 下 `jjwt 0.9.1` 签发 token 抛 `NoClassDefFoundError`，**基线登录不了**，无法构造同口径对照。故 V4 结论只能表述为「逐接口可达性 0 回归」，**不等于**快照 diff 0 差异；硬门槛 1 仍未按原定义达成。
+- **阻塞 B-2**：沙箱注入 `SERVER_PORT=52051` 且端口被占用 → 首次启动 `PortInUseException`，加 `--server.port=8888` 后成功；同事机器无此变量，不影响产物。
+- 文档回填：`docs/19` 5 项 P0 状态改「已裁决/已闭环」；`docs/21` 新增第七章（V1–V4 实测与缺陷登记）；`docs/22` 新增第八章（8.1 已闭环 / 8.2 新增待办 / 8.3 环境交接两条）；`docs/23` 第六、七章回填实测。
+- 仍未放行：38 个写接口未回归、v2 四页面未做浏览器级联调、2 个存量死接口未修。下一批从 **B10** 编号。
+
+| B10 | 2026-11-11 | 采纳方案 A 后补跨平台一键启动脚本（Windows/macOS/Linux），修正 `.gitignore`/`.gitattributes`，新增部署模板与 `docs/24`，同步 README | 两平台脚本各 9 项实测全通过；后端构建 1m46s、前端 2m45s；修复 7 个脚本缺陷 |
+
+**B10 关键信息（新增文件与实测缺陷）**：
+
+- **采纳 A 的落地**：`hrent-api/mvnw`、`mvnw.cmd`、`.mvn/wrapper/maven-wrapper.properties`、`.mvn/settings.xml` 全部可被 git 跟踪（`git check-ignore` 返回 `ignored=1`，`git status` 显示 `??`）。根与 `hrent-api` 两份 `.gitignore` 的放行规则已验证生效。
+- **新增一键启动（6 个文件）**：
+  - `start.sh`：Linux/macOS/WSL/Git Bash 主入口，支持 `start/run/stop/restart/status/logs/build/build-web/help`；
+  - `start.cmd` + `scripts/hrent.ps1`：Windows 入口与实现（PS 5.1 兼容，文件为 UTF-8 BOM）；
+  - `.env.example`：9 个环境变量占位模板，不含真实凭据；
+  - `deploy/hrent.service`、`deploy/nginx.conf.example`：服务器部署模板。
+- **端口变量命名决策**：脚本只认 `HRENT_PORT`、**不读 `SERVER_PORT`**。依据是 B9 记录的沙箱注入事故（8888 被改成 52051 导致 `PortInUseException`）；启动时再显式追加 `--server.port` 做双保险（命令行优先级高于环境变量）。
+- **实测暴露并修复的 7 个脚本缺陷**（均为真机跑出来的，非静态推断）：
+  1. Git Bash 下 `$!` 是 MSYS 包装进程号（767），真实 Java 进程是另一个 Windows PID（25324）→ `status` 误报未运行；改用 `jps -l` 匹配 jar 名（jps 输出 Windows PID）；
+  2. 端口反查兜底未校验进程名，被一个监听 8890 的 Python 进程骗成「服务已在运行」，阻塞启动 → 加 `tasklist`/`ps -o comm=` 校验；
+  3. Windows `taskkill` 不带 `/F` 对无窗口控制台 Java 无效，脚本空等 15 秒 → Windows 分支直接 `/F`，等待缩到 6 秒；
+  4. PowerShell 在 `$ErrorActionPreference='Stop'` 下用 `2>&1` 捕获 `java -version`，把 JVM 的 stderr 当异常抛 → 改 `System.Diagnostics.Process` 重定向；
+  5. `Start-Process` 在同时存在 `HTTPS_PROXY`/`https_proxy` 时抛「字典中的关键字冲突」直接崩 → 启动前归一化重复环境变量键；
+  6. `Get-NetTCPConnection` 无匹配时抛异常，退回 netstat 又匹配到 `TIME_WAIT` → cmdlet 优先 + 兜底过滤 `LISTENING`；
+  7. `status` 把端口检测放在健康检查前，启动瞬间误报「端口未监听」→ 改为健康检查为主、端口为辅。
+- **日志策略**：每次 `start` 前把 `logs/hrent.log` 轮转为 `.log.1`（只留一份历史），避免长期运行无限增长；Windows 侧因 `Start-Process` 只能覆盖写，额外产出 `hrent.err.log` 存 JVM 自身错误。
+- **`.gitattributes` 修正**：原文件把 `*.js/*.css/*.html/*.vue` 标记为 `linguist-language=java`（GitHub 语言统计伪装），属误导性元数据，不适合公开仓库 → 改为换行符策略（`*.sh`/`mvnw` 强制 LF，`*.cmd`/`*.ps1` 为 CRLF）。**此项会改变 GitHub 语言统计结果**。
+- **`.gitignore` 新增**：`logs/`、`*.pid`、`.env`、`.env.local`、`hrent-api/static/images/`、`hrent-web/dist/`。`.env` 已验证被忽略（第 42 行规则）。
+- **文档**：新增 `docs/24_一键启动与部署指南.md`（10 章：快速开始/命令参考/环境变量/8 条平台差异实测/服务器部署/16 项 Bash 实测/9 项 PowerShell 实测/7 个缺陷/12 条排障/未覆盖项）；根 `README` 新增第八章并在 7.3 改为「一键启动优先」；`hrent-api/README` 7.3 同步指向脚本。
+- **未覆盖（如实登记）**：Linux 真实发行版与 macOS 未实跑，仅按 POSIX 实现并在 Git Bash 验证；Docker 化、Windows 开机自启、logrotate 接入未做。均已写入 `docs/24` 第十章。
+- 下一批从 **B11** 编号。
+
+| B11 | 2026-11-11 | 公开发布准备：重建脱敏副本、二次扫描、本地提交 `d277360`；远端推送因网络 502 未完成，产出离线 bundle | 副本 1083 文件 / 6.3 MB；脱敏 44 处 / 18 文件；扫描 **HITS=0**；本地提交成功，远端仍为 `d8ebdf4` |
+| B12 | 2026-11-11 | 修复 Windows 一键启动双击闪退：`start.cmd` 改纯 ASCII + CRLF、无参数运行保留窗口、重复启动改幂等、失败原因落盘 | 14 项实测全通过；`start.cmd` 非 ASCII 字节 0；从停止状态双击 19.2s 启动成功 |
+| B13 | 2026-11-11 | 修复 `.env` 占位符导致数据库 1045、以及健康检查被代理劫持的假阳性；启动前增加占位符拦截 | 密码实测 `change-me` 失败 / `<LOCAL_DB_PASSWORD>` 成功；健康检查旧写法假阳性、新写法正确；`Started HrentApplication in 8.253s` |
+| B14 | 2026-11-11 | 补齐「一键启动前端」能力：后端托管 `dist`（单进程）+ 新增 `dev` 热更新模式；前端去掉全部写死的主机地址 | `start` 后页面 200 / `app.js` 200（149,519 B）/ 接口 200；`dev` 12s 就绪、代理 `/hrent/**` 返回业务码 200；`stop` 后 8888/8080 均释放 |
+
+**B11 关键信息（发布状态）**：
+
+- **发布副本重建**（不使用增量，避免旧副本残留）：白名单复制 1083 个文件 / 6.3 MB，排除 `*.rar`、`*.docx`、`README2.md`、`picture/`、`output/`、`docs/_work/`、`node_modules`、`target`、`dist`、`.workbuddy`、`logs/`、`.env`。
+- **脱敏 44 处 / 18 文件**：DB 用户名/口令/JWT 密钥外部化为 `${DB_USERNAME}`/`${DB_PASSWORD}`/`${JWT_SECRET}`；`TokenUtils` 硬编码兜底密钥→`change-me-token-secret`；真实微信 AppID `wx5c68…`→`touristappid`（官方游客模式）；内网 IP→`127.0.0.1`；本机绝对路径 7 处→`<LOCAL_PATH>`；隧道域名 11 处→`<TUNNEL_HOST>`；作者手机号/QQ/个人站点→`<CONTACT>`/`<PERSONAL_SITE>`；演示口令明文 7 处→`<DEMO_PASSWORD>`；SQL 注释 3 处改为「初始口令见 README」。
+- **二次扫描**：393 个文本文件，敏感项 **HITS=0**、排除项 **PRESENT=0**。规则覆盖明文口令、硬编码密钥、内网 IP、本机路径、联系方式、隧道域名、`wx[0-9a-f]{16}` 形态 AppID、私有工作区目录。
+- **修正 2 处扫描发现的真实残留**：`hrent-wechat/project.config.json` 的真实 AppID；`docs/CHANGELOG.md` 中对私有目录的直呼（改为中性表述）。
+- **`PUBLISH_NOTES.md` 重写**：新增占位符替换清单（7 项）、排除清单、已知限制 5 条、安全提示。明确「演示账号为弱口令，对外部署前必须重置」。
+- **本地提交 `d277360`**：243 文件变更（+6257 / −174），作者 `houserent-public <noreply@example.invalid>`（中性身份，未用本机 git 全局邮箱）。
+- **推送失败（阻塞）**：代理返回 `CONNECT tunnel failed, response 502`，直连 `github.com:443` 21 秒超时；重试 3 次均失败。**远端 `main` 仍为 `d8ebdf4`，本轮改动尚未公开**。
+- **离线交付**：生成 `<LOCAL_PATH>/houserent-public-d277360.bundle`（1.2 MB，`git bundle verify` 通过，含完整历史），配套 `推送说明.md` 给出三种推送方式与验证命令。
+- **注意**：源项目目录仍为未脱敏开发版，**不可直接从该目录 push 到公开仓库**；发布必须走副本/bundle 路径。
+
+**B12 关键信息（Windows 双击闪退修复）**：
+
+- **现象**：资源管理器双击 `start.cmd`，窗口一闪即关，看不到任何结果；部分机器还会刷出若干「不是内部或外部命令」。
+- **根因（三条叠加，均已复现）**：
+  1. **编码**：`start.cmd` 为 UTF-8 无 BOM + LF，而 cmd.exe 按控制台代码页（中文 Windows = 936/GBK）解析批处理。中文 `REM` 注释被解码成乱码，乱码字节破坏注释边界，后半段被当命令执行 → `'埧灞嬬璧佺鐞嗙郴缁?路' 不是内部或外部命令` 等 5 条报错（原始输出留档于 `docs/24` §8.4）；
+  2. **无停留**：脚本执行完立即 `exit`，窗口随进程退出关闭，成功/失败都来不及看；
+  3. **误判失败**：服务已在运行时走 `Die`（返回码 1），重复双击被当成错误。
+- **修复**：
+  1. `start.cmd` 重写为**纯 ASCII + CRLF**（非 ASCII 字节 0），所有中文提示交回 `hrent.ps1`（UTF-8 BOM，不受控制台代码页影响）；
+  2. 无参数运行（双击场景）结束时保留窗口并打印结果摘要；带参数（`status`/`stop`/`logs`…）不阻塞，保持可脚本化；`HRENT_NO_PAUSE=1` 可强制关闭停留；
+  3. 重复启动改为**幂等成功**（返回码 0），并从进程命令行解析 `--server.port` 显示**真实端口**，避免 `--port 9999` 在服务占用 8888 时谎报地址；
+  4. `hrent.ps1` 增加顶层 `try/catch`：未处理异常不再直接消失，而是打印可读原因 + 写入 `logs/hrent.error.log`（UTF-8 无 BOM）+ 返回码 2；
+  5. `--port` 改用 `[int]::TryParse`，非法值给业务提示而非 .NET 异常栈；
+  6. PID 文件校验加进程名判断（`java`），避免 PID 复用误判「已在运行」。
+- **验证（14 项，均实测）**：文件属性、无参运行、窗口保留、从停止状态启动（19.2s）、重复启动、端口冲突（`--port 9999`）、外部占用（`--port 3306` → 指出 `PID 21632 mysqld`）、未知参数、非法端口、错误日志编码、`stop` 幂等、带参数不阻塞、损坏 PID 文件、状态查询不误报失败。明细见 `docs/24` §8.4。
+- **对比修复前**：解析错误 5 条 → 0 条；双击后可见结果 0 行 → 完整摘要 + 日志路径；重复启动返回码 1 → 0。
+- **已知不适用**：`%CMDCMDLINE%` 不能用于判断双击（真实双击时含嵌套引号，赋给 `set "VAR=..."` 会被截断），已改用「无参数即保留窗口」的规则；测试环境中由命令派生的子进程会在命令结束时被回收，与真实双击（explorer 启动）无关，已单列说明避免误判。
+
+**B13 关键信息（数据库认证失败 + 健康检查假阳性）**：
+
+- **现象**：B12 之后窗口不再闪退，错误完整可见，内容是 Flyway 连库抛 `Access denied for user 'root'@'localhost' (using password: YES)`。
+- **根因 1（配置）**：`.env` 第 26 行是 `DB_PASSWORD=change-me`——从 `.env.example` 复制后从未替换。脚本把它注入 `SPRING_DATASOURCE_PASSWORD`，覆盖了 `application.yml` 的 `<LOCAL_DB_PASSWORD>`，而这个占位符并不是 MySQL 的真实密码。
+  - 实测：用 `change-me` 连库 → `ERROR 1045`；用 `<LOCAL_DB_PASSWORD>` 连库 → `ok / 1`。
+- **根因 2（脚本）**：健康检查 `Test-Health` 用 `curl -s` 只看退出码。环境里存在 `http_proxy` 时，连 `127.0.0.1` 也被发给代理，代理回 `502`，但 `curl` 仍返回 `exit=0` → 被判「健康」。后果是**启动失败被误报为启动成功**，上一轮排查中被这一点误导过。
+- **修复**：
+  1. `.env` 的 `DB_PASSWORD` 改为本机真实密码 `<LOCAL_DB_PASSWORD>`；
+  2. `Test-Health` 加 `--noproxy "*"`，并用 `-w "%{http_code}"` 严格校验 200；
+  3. 新增 `Assert-EnvReady`：启动前检测 `^change[-_]?me`，`DB_PASSWORD` 命中直接 `Die` 并指出行，`TOKEN_SECRET` 命中只告警（不阻塞启动）。
+- **验证**：
+  - 占位符拦截：1 秒内报「DB_PASSWORD 仍是模板占位符」，不再等 Spring 抛一屏栈；
+  - 真实启动：日志 `Started HrentApplication in 8.253 seconds`，无 `Access denied`；
+  - 健康检查对照（服务未运行时）：旧写法 `exit=0` 判「健康」（假阳性），新写法 `http=000 exit=7` 判「不健康」。
+- **遗留提醒**：`.env` 的 `TOKEN_SECRET` 仍是 `change-me-to-a-random-32-bytes-secret`，能启动但 JWT 密钥可预测，对外部署前必须换成随机值。
+- **顺带修复**：`status` 只判断 PID 是否存在，进程退出后 PID 被系统复用会误报「运行中」（实测 PID 30936 已被其他程序占用）。已加 `java` 进程名校验，与 `Start-App` 保持一致。
+
+**B14 关键信息（一键启动后端 + Web 前端）**：
+
+- **起点**：`start.cmd` 只拉起后端 JVM，前端仅有 `build-web`（构建到 `dist`，不提供访问），双击启动后只能开接口、看不到页面。
+- **方案**：两条路并行，按用途选，互不冲突：
+  1. **生产/演示（单进程，无需 Node 运行时）**：`WebMvcConfig` 新增 `/web/**` 到 `file:${HRENT_WEB_DIR}` 的映射；脚本在 `dist` 存在时注入该环境变量。访问 `http://<host>:8888/hrent/web/index.html`。hash 路由 + `assetsPublicPath: './'`，放子路径即可工作，无需 fallback 规则。
+  2. **开发（热更新）**：新增 `dev` 命令，先起后端并等健康检查通过，再起 webpack-dev-server（默认 8080，`--web-port` 可改），访问 `http://localhost:8080/`。
+- **前端去硬编码**（原违反「禁止硬编码 host/port」约定，见 `docs/19` T-01/T-08）：
+  - `src/config.js`：`baseUrl` 由绝对地址改为 `/hrent`，`picLocal` 同步；
+  - `src/components/common/Header.vue` 105/142 行：默认头像由绝对地址改为 `/hrent/default/head/head.png`（**这是真正的功能缺陷**，换端口或上域名后头像必 404）；
+  - `config/index.js`：`proxyTable` 由 `{}` 改为把 `/hrent` 转发到 `HRENT_API_BASE`（默认 `http://127.0.0.1:8888`），让相对路径在 dev 模式可用。
+- **脚本新增**：`Test-WebBuilt` / `Test-WebPidIsOurs` / `Test-WebUp` / `Start-WebDev` / `Stop-WebDev` / `Stop-WebNodeByCommandLine` / `Show-WebStatus`；`stop` 同时停前后端；`status` 同时显示；`logs --web` 看前端日志。
+- **踩到的两个坑（均已修）**：
+  1. **误杀构建进程**：`Stop-WebNodeByCommandLine` 最初用 `hrent-web|webpack-dev-server` 宽匹配，而 `npm run build` 的命令行同样含 `hrent-web` 路径，执行 `stop` 会把正在构建的前端进程杀掉（实测一次杀掉 3 个 node）。已收紧为仅匹配 `webpack-dev-server` / `webpack.dev.conf`，且**仅在 PID 文件存在但进程失效时**才兜底扫描。
+  2. **dev 模式端口漂移**：webpack-dev-server 用 `portfinder`，端口被占用会静默改用下一个，脚本报告的地址就是假的。改为启动前先校验端口，再显式设 `PORT`，冲突时报出占用者而不是漂移。
+- **验证（均实测）**：
+  - 单进程：`start` 后 `index.html` 200（614 B）、`app.js` 200（149,519 B，与 dist 一致）、接口 200；`status` 同时输出后端与前端。
+  - dev：12s 就绪；首页 200；`/hrent/sysCommon/getBaseInfo` 经代理返回 200（业务码 200）；`/app.js` 200（22.3 MB，含 eval source map，属 dev 正常体积）。
+  - 停止：`stop` 后 8888 与 8080 均 FREE，前端 dev server 进程树被 `taskkill /F /T` 清干净（含 npm.cmd → cmd.exe → node.exe 三层）。
+  - 硬编码：`hrent-web/src` 全目录 grep `localhost:8888|127.0.0.1:8888` **0 命中**；重新构建后 `dist/static/js/app.*.js` 亦 **HARDCODE=NO**。
+- **两个入口已对齐**：`start.sh`（Unix/Git Bash）同步实现 `dev`、`build-web` 托管、`status` 前端识别、`stop` 连带停前端、`logs --web`，与 PowerShell 分支行为一致；两套脚本均实测通过。
+- **未覆盖**：前端四个 v2 页面未做浏览器点选联调，仅验证到「页面与静态资源可 200 加载 + 接口经代理 200 + 返回体与直连一致」；Linux/macOS 实机仍未跑（仅 Git Bash）。
+- **自定义端口停机缺陷（B14 补丁，已修）**：`HRENT_WEB_PORT=8099 ./start.sh dev` 之后直接 `./start.sh stop`，新进程不知道 8099，按默认 8080 反查必然落空，报「前端开发服务器未运行」却让 8099 一直监听（实测残留 `port8099=ALIVE`）。修复两处：
+  1. 新增 `logs/hrent-web.port` 记录 dev 实际端口，`stop`/`status` 在未显式指定端口时回落到该值（优先级：`--web-port` > `HRENT_WEB_PORT` > 记录的端口 > 8080）；
+  2. PID 文件回填为**真正的监听进程**（`port_owner_pid` / `Get-PortOwnerPid`）：`$!` 与 `npm.cmd` 都是包装进程，`kill -0` 能通过但按命令行判定为「不是 node」，导致下一步找不到进程。
+  回归：Bash `HRENT_WEB_PORT=8099 dev` → 无参 `stop` → 8888/8099 双双 FREE；`dev --web-port 8099` → `status` 显示 `运行中（PID 4632）-> :8099` → `stop` → 双双 FREE。同时把 `HRENT_WEB_PORT` 补进 `.env.example` 与 `docs/24` 环境变量表。
 

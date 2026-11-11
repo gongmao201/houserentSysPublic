@@ -5,7 +5,6 @@
 
 <p><h1 align="center">基于Java+Springboot+Vue的房屋租赁系统小程序</h1></p>
 
-
 ## 一、系统介绍
 本系统前后端分离
 
@@ -38,9 +37,42 @@
 
 所有项目以及源代码本人均调试运行无问题 可支持远程调试运行
 
+## 四、页面截图
+### 1、管理员页面
+![contents](./picture/picture0.png)
+![contents](./picture/picture00.png)
+![contents](./picture/picture1.png)
+![contents](./picture/picture2.png)
+![contents](./picture/picture3.png)
+![contents](./picture/picture4.png)
+![contents](./picture/picture5.png)
+![contents](./picture/picture6.png)
+![contents](./picture/picture7.png)
+![contents](./picture/picture8.png)
+![contents](./picture/picture9.png)
+![contents](./picture/picture10.png)
+![contents](./picture/picture11.png)
+![contents](./picture/picture12.png)
+![contents](./picture/picture13.png)
+### 2、房东页面
+![contents](./picture/picture14.png)
+![contents](./picture/picture15.png)
+![contents](./picture/picture16.png)
+![contents](./picture/picture17.png)
+![contents](./picture/picture18.png)
+### 3、用户页面
+![contents](./picture/picture19.png)
+![contents](./picture/picture20.png)
+![contents](./picture/picture21.png)
+![contents](./picture/picture22.png)
+![contents](./picture/picture23.png)
+![contents](./picture/picture24.png)
+![contents](./picture/picture25.png)
+![contents](./picture/picture26.png)
+
 
 ## 五、浏览地址
-- http://localhost:8888/hrent
+- http://localhost:8080/
 
 超级管理员的账号密码为：<DEMO_ACCOUNT>/<DEMO_PASSWORD>
 
@@ -86,24 +118,69 @@
 登录管理端后，左侧菜单 **「新功能 v2」** 下有：评分管理 / 报修工单 / 账单管理 / AI 推荐。
 前端 v2 请求层 `hrent-web/src/network/v2.js` 独立封装（token 注入、错误解包、600 跳登录、300ms 请求去重）。
 
-### 7.3 启动方式
+### 7.3 一键启动（推荐，跨平台）
 
-1. 后端：导入 `hrent-api`，按原教程配置数据库后启动 `HrentApplication`；服务实际为 `http://localhost:8888/hrent`（`application.yml` 的 `port` + `context-path`，与 `docs/13` 写的 8080 无 context-path 不一致，见待定 T-01）。
-2. 前端：`cd hrent-web && npm install && npm run dev`；构建时若用 Node 17+，需 `NODE_OPTIONS=--openssl-legacy-provider npm run build`。
-3. 数据库：Flyway V1–V7 会自动校验/执行；新表 DDL 见 `hrent-api/src/main/resources/db/migration/`。
+> **不需要预装 Maven**：项目自带 Maven Wrapper（固定 Maven 3.9.16），`./mvnw` / `mvnw.cmd` 会自动下载对应版本。
 
-### 7.4 本次校验结果
+```bash
+# 1) 首次：复制环境变量模板，填写数据库口令与 JWT 密钥
+cp .env.example .env          # Windows 用：copy .env.example .env
+
+# 2) 一键启动（自动判断是否需构建 → 后台启动 → 健康检查）
+./start.sh                    # Linux / macOS / WSL / Git Bash
+start.cmd                     # Windows
+
+# 3) 常用命令
+./start.sh status             # 运行状态 + 健康检查
+./start.sh logs -f            # 跟踪日志（Ctrl+C 退出）
+./start.sh stop               # 停止（含前端）
+./start.sh restart            # 重启
+./start.sh build              # 仅构建后端
+./start.sh build-web          # 仅构建前端到 hrent-web/dist
+./start.sh dev                # 后端 + 前端开发服务器（热更新）
+./start.sh help               # 全部命令
+```
+
+**前端如何一起起来**——两种模式，按用途选：
+
+| 用途 | 命令 | 访问地址 | 需要 Node |
+|---|---|---|---|
+| 生产 / 演示（**单进程**） | `build-web` 构建一次 → `start` | `http://localhost:8888/hrent/web/index.html` | 仅构建时 |
+| 开发（热更新） | `dev` | `http://localhost:8080/` | 是 |
+
+后端启动时若 `hrent-web/dist` 存在，会通过 `HRENT_WEB_DIR` 把它映射到 `/hrent/web/**`（见 `WebMvcConfig`），**一个 Java 进程同时提供页面与接口**，服务器上不需要额外装 nginx。前端为 hash 路由 + `assetsPublicPath: './'`，放在子路径下可直接工作，不需要服务端 fallback。
+
+`dev` 模式会先等后端健康检查通过，再起 webpack-dev-server；前端统一用相对路径 `/hrent/**` 请求接口，由 `config/index.js` 的 `proxyTable` 转发，代码中不再有写死的 host/port。
+
+脚本自动处理平台差异：JDK 版本分支（JDK 9+ 才加 `--add-opens`，JDK 8 加会启动失败）、Windows 用 `taskkill` 停进程、日志轮转（`logs/hrent.log` + `.log.1`）、端口占用检测、重复启动保护。
+完整参数、环境变量与服务器部署见 **[`docs/24_一键启动与部署指南.md`](docs/24_一键启动与部署指南.md)**。
+
+**Windows 直接双击 `start.cmd` 即可**：窗口会保留并显示结果——成功给出访问地址，失败给出原因与日志路径，不会再一闪而过；服务已在运行时重复双击按「已启动」处理，不算失败。自动化 / CI 里设 `HRENT_NO_PAUSE=1` 可关闭窗口停留。
+
+> 维护约定：`start.cmd` 必须保持**纯 ASCII + CRLF**。cmd.exe 按控制台代码页（中文 Windows 为 GBK）解析批处理，中文注释会乱码并被拆成命令执行——这正是历史版本双击闪退的根因。中文提示一律写在 `scripts/hrent.ps1`（UTF-8 BOM）。
+
+### 7.4 手动启动（不用脚本时）
+
+1. 后端构建：`cd hrent-api && ./mvnw clean package`（跳过测试加 `-DskipTests`）。
+   - 若本机 `~/.m2/settings.xml` 把 `localRepository` 写死成别人的绝对路径，改用项目模板：`./mvnw -s .mvn/settings.xml clean package`。
+   - 首次运行需联网下载 Maven 发行版与依赖；完全离线机器需自备依赖包（见 `docs/23` H1）。
+2. 后端启动：`java -jar target/hrent-0.0.1-SNAPSHOT.jar --server.port=8888`（JDK17 另需 `--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.math=ALL-UNNAMED`）。服务实际为 `http://localhost:8888/hrent`（`application.yml` 的 `port` + `context-path`，与 `docs/13` 写的 8080 无 context-path 不一致，裁决见 `docs/23` T-01）。
+3. 前端：`cd hrent-web && npm install && npm run dev`；构建时若用 Node 17+，需 `NODE_OPTIONS=--openssl-legacy-provider npm run build`。
+4. 数据库：Flyway V1–V7 会自动校验/执行；新表 DDL 见 `hrent-api/src/main/resources/db/migration/`。
+
+### 7.5 本次校验结果（2026-11-11 运行时闭环实测）
 
 | 项 | 结果 |
 |---|---|
-| 后端全量源码编译 | 通过（`javac` + 本地 Maven 仓库 jar；`api` 包 24 个 class / 6 个 Controller） |
-| Mapper XML 解析 | 全部通过 |
-| 前端生产构建 | 通过（webpack 3.12，app.js 150 kB） |
-| 运行时接口冒烟 | **未执行**（本环境无外网且 Maven 无法解析父 POM，见待定 T-10） |
+| 后端构建 | **BUILD SUCCESS**（`./mvnw -s .mvn/settings.xml clean package`，3 个测试 0 失败，jar 29 MB） |
+| 服务启动 | **通过**（8888 + `/hrent`，`Started in 21.155s`，Flyway 8 条迁移校验通过） |
+| v2 接口用例 | **32 PASS / 0 FAIL**（详见 `docs/21` 第七章） |
+| 老接口回归 | **0 回归**（103 个：实调 65 个读接口，写语义 38 个跳过；2 个存量死接口恒 500，无端调用） |
+| 未放行项 | 38 个写接口未回归、v2 四页面未做浏览器联调、2 个存量死接口未修 |
 
-> 注意：本机 `mvn` 不在 PATH 且沙箱无法访问 Maven 仓库，改用 `javac` 覆盖语法与类型校验；上线前务必在联网机器执行 `mvn clean package` + 启动冒烟。
+> 以上为**真实执行结果**（非静态推断）：构建使用项目自带 `mvnw`，启动与接口验证在本机 8888 端口实际跑通。一键启动脚本另做平台兼容性实测，记录见 `docs/24` 第八章。
 
-### 7.5 文档索引
+### 7.6 文档索引
 
 | 文档 | 内容 |
 |---|---|
@@ -112,6 +189,48 @@
 | `docs/20_功能描述文档.md` | 模块、接口、页面、数据与安全设计 |
 | `docs/21_测试文档.md` | 用例集、校验结果、未执行项与缺陷清单 |
 | `docs/22_下一步需求文档.md` | 待定闭环、二期 backlog 与验收门槛 |
+| `docs/23_P0决策与验证闭环.md` | 5 项 P0 裁决依据与 V1–V4 实测记录 |
+| `docs/24_一键启动与部署指南.md` | 启动脚本命令、环境变量、服务器部署与排障 |
+
+---
+
+## 八、一键启动与部署
+
+### 8.1 交付物
+
+| 文件 | 作用 |
+|---|---|
+| `start.sh` | Linux / macOS / WSL / Git Bash 一键入口 |
+| `start.cmd` | Windows 一键入口（转调 `scripts/hrent.ps1`） |
+| `scripts/hrent.ps1` | Windows 侧实现（PowerShell 5.1+ 兼容） |
+| `.env.example` | 环境变量模板（复制为 `.env` 后填写，`.env` 不入库） |
+| `deploy/hrent.service` | systemd 服务模板 |
+| `deploy/nginx.conf.example` | nginx 站点模板（静态前端 + 反代后端） |
+
+### 8.2 三个必须知道的约定
+
+1. **端口变量叫 `HRENT_PORT`，不叫 `SERVER_PORT`**。部分云平台/CI 会注入 `SERVER_PORT` 或 `PORT`，脚本若读它会被劫持（实测被改成 52051 导致启动失败）。脚本固定用 `--server.port` 显式覆盖。
+2. **凭据只写 `.env`**，且 `.env` 已被 `.gitignore` 忽略。`.env.example` 里全是 `change-me` 占位符。
+3. **JDK 8 与 9+ 的启动参数不同**：`--add-opens` 只有 JDK 9+ 认识，JDK 8 传了会直接报错退出。脚本按 `java -version` 自动分支。
+
+### 8.3 服务器部署（三步）
+
+```bash
+# 1) 构建（服务器上装 JDK 17 即可，无需装 Maven）
+cd /opt/hrent/hrent-api && ./mvnw -DskipTests clean package
+
+# 2) 配环境变量并装 systemd 服务
+sudo cp .env.example /opt/hrent/.env && sudo chmod 600 /opt/hrent/.env   # 编辑填真实口令
+sudo cp deploy/hrent.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now hrent
+
+# 3) 前端 + nginx
+cd hrent-web && npm install && NODE_OPTIONS=--openssl-legacy-provider npm run build
+sudo cp -r dist/* /opt/hrent/web/ && sudo cp deploy/nginx.conf.example /etc/nginx/conf.d/hrent.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+详细步骤、参数说明与故障排查见 [`docs/24_一键启动与部署指南.md`](docs/24_一键启动与部署指南.md)。
 
 
 

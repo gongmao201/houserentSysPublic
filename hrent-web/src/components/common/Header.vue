@@ -102,7 +102,7 @@ export default {
           this.userName = loginUser.name;
           this.userImg =
             loginUser.headUrl == null
-              ? "http://localhost:8888/hrent/default/head/head.png"
+              ? "/hrent/default/head/head.png"
               : this.picLocal + loginUser.headUrl;
           this.userId = loginUser.id;
         })
@@ -139,7 +139,7 @@ export default {
         this.userName = loginUser.name;
         this.userImg =
           loginUser.headUrl == null
-            ? "http://localhost:8888/hrent/default/head/head.png"
+            ? "/hrent/default/head/head.png"
             : this.picLocal + loginUser.headUrl;
         this.userId = loginUser.id;
       })

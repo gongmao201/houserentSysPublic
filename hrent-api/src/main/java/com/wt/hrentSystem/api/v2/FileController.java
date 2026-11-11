@@ -23,8 +23,9 @@ public class FileController {
     private V2Context v2Context;
 
     @PostMapping("/upload")
-    public ApiResponse<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
+    public ApiResponse<Map<String, Object>> upload(@RequestParam(value = "file", required = false) MultipartFile file,
                                                    HttpServletRequest request) {
+        // 先鉴权再校验文件：required=false 避免 Spring 参数绑定先抛异常而被兜底成 500
         v2Context.current(request);
         return ApiResponse.ok(fileService.upload(file));
     }

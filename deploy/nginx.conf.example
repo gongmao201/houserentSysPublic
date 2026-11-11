@@ -1,0 +1,63 @@
+# =============================================================================
+# nginx 站点模板 · 前端静态文件 + 后端反向代理
+#
+# 部署步骤：
+#   1. 构建前端：cd hrent-web && npm install && npm run build
+#   2. 拷贝产物：sudo mkdir -p /opt/hrent/web && sudo cp -r dist/* /opt/hrent/web/
+#   3. 装站点：  sudo cp deploy/nginx.conf.example /etc/nginx/conf.d/hrent.conf
+#                sudo nginx -t && sudo systemctl reload nginx
+#   4. HTTPS：   sudo certbot --nginx -d your-domain.com（自动改写本文件）
+#
+# 说明：
+#   - proxy_pass 不带 URI 后缀，原始路径 /hrent/xxx 原样转发给后端，
+#     不会因为多写/少写斜杠导致 404。这是最容易踩的坑，别改成带 /hrent/ 的写法。
+#   - client_max_body_size 必须 ≥ 后端 multipart 上限（当前 6MB）。
+# =============================================================================
+
+server {
+    listen 80;
+    server_name _;
+
+    # 前端构建产物目录（hrent-web/dist）
+    root /opt/hrent/web;
+    index index.html;
+
+    # 与后端 spring.servlet.multipart.max-request-size 对齐（6MB），留 1MB 余量
+    client_max_body_size 7m;
+
+    # 上传图片等长连接场景，避免默认 60s 掐断
+    proxy_connect_timeout 10s;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+
+    # 静态资源缓存
+    location ~* \.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)$ {
+        expires 7d;
+        add_header Cache-Control "public";
+        try_files $uri =404;
+    }
+
+    # 后端接口与图片访问：/hrent/** 全部反代到 Spring Boot
+    location /hrent/ {
+        proxy_pass http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 上传大文件时不要缓冲整个请求体到磁盘
+        proxy_request_buffering off;
+    }
+
+    # 单页应用路由回退：其余路径交给 index.html，避免刷新 404
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 健康检查（给负载均衡/监控用）
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+}

@@ -79,6 +79,13 @@
             <artifactId>jjwt</artifactId>
             <version>0.9.1</version>
         </dependency>
+        <!-- JDK11+ 移除了 javax.xml.bind.DatatypeConverter，jjwt 0.9.1 运行期会 NoClassDefFoundError。
+             用 API 依赖兜底：不改 TokenUtils 代码，也不升 jjwt（避免 7 天双验期）。 -->
+        <dependency>
+            <groupId>javax.xml.bind</groupId>
+            <artifactId>jaxb-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
         <dependency>
             <groupId>com.auth0</groupId>
             <artifactId>java-jwt</artifactId>

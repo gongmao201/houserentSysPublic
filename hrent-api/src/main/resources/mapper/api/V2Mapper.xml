@@ -14,7 +14,8 @@
 
     <!-- ==================== 租约 ==================== -->
     <sql id="leaseCols">
-        g.id AS id, g.house_id AS houseId, g.tenant_id AS tenantId, g.tenant_name AS tenantName,
+        <!-- hrent_house_renting 无 tenant_name 列（实测 MySQL 1054），不要凭实体字段臆造列名 -->
+        g.id AS id, g.house_id AS houseId, g.tenant_id AS tenantId,
         h.create_by AS landlordId, h.address AS houseTitle,
         g.status AS statusCode, g.start_date AS startDate, g.end_date AS endDate,
         g.actual_end_date AS actualEndDate, g.money_fen AS moneyFen,

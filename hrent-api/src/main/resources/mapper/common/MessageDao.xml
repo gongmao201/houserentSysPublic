@@ -29,7 +29,7 @@
                text,
                title,
                state,
-               system,
+               `system`,
                create_by,
                create_time,
                update_by,
@@ -70,7 +70,7 @@
             and state = #{state}
         </if>
         <if test="system != null and system != ''">
-            and system = #{system}
+            and `system` = #{system}
         </if>
         <if test="createBy != null and createBy != ''">
             and create_by = #{createBy.id}
@@ -110,7 +110,7 @@
             and state = #{state}
         </if>
         <if test="system != null and system != ''">
-            and system = #{system}
+            and `system` = #{system}
         </if>
         <if test="createBy != null and createBy != ''">
             and create_by = #{createBy.id}
@@ -173,7 +173,7 @@
                                         title,
                                         text,
                                         state,
-                                        system,
+                                        `system`,
                                         create_by,
                                         create_time,
                                         update_by,
@@ -205,7 +205,7 @@
                 state = #{state},
             </if>
             <if test="system != null">
-                system = #{system},
+                `system` = #{system},
             </if>
             <if test="createBy != null and createBy.id != ''">
                 create_by = #{createBy.id},

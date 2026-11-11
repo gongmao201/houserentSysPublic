@@ -1,3 +1,23 @@
+# 换行符策略：脚本在 Linux/macOS 上必须为 LF，否则 bash 会因 \r 报错
+*.sh        text eol=lf
+mvnw        text eol=lf
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+*.ps1       text eol=crlf
+
+# 文本文件统一按文本处理，避免 Windows 检出后 diff 噪音
+*.java      text
+*.xml       text
+*.yml       text
+*.yaml      text
+*.properties text
+*.json      text
+*.md        text
+*.sql       text
+*.vue       text
+*.js        text
+*.css       text
+*.html      text
 *.js linguist-language=java
 *.css linguist-language=java
 *.html linguist-language=java

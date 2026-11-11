@@ -31,9 +31,42 @@
 
 所有项目以及源代码本人均调试运行无问题 可支持远程调试运行
 
+## 四、页面截图
+### 1、管理员页面
+![contents](./picture/picture0.png)
+![contents](./picture/picture00.png)
+![contents](./picture/picture1.png)
+![contents](./picture/picture2.png)
+![contents](./picture/picture3.png)
+![contents](./picture/picture4.png)
+![contents](./picture/picture5.png)
+![contents](./picture/picture6.png)
+![contents](./picture/picture7.png)
+![contents](./picture/picture8.png)
+![contents](./picture/picture9.png)
+![contents](./picture/picture10.png)
+![contents](./picture/picture11.png)
+![contents](./picture/picture12.png)
+![contents](./picture/picture13.png)
+### 2、房东页面
+![contents](./picture/picture14.png)
+![contents](./picture/picture15.png)
+![contents](./picture/picture16.png)
+![contents](./picture/picture17.png)
+![contents](./picture/picture18.png)
+### 3、用户页面
+![contents](./picture/picture19.png)
+![contents](./picture/picture20.png)
+![contents](./picture/picture21.png)
+![contents](./picture/picture22.png)
+![contents](./picture/picture23.png)
+![contents](./picture/picture24.png)
+![contents](./picture/picture25.png)
+![contents](./picture/picture26.png)
+
 
 ## 五、浏览地址
-- http://localhost:8888/hrent
+- http://localhost:8080/
 
 超级管理员的账号密码为：<DEMO_ACCOUNT>/<DEMO_PASSWORD>
 
@@ -87,20 +120,46 @@ src/main/resources/mapper/api/V2Mapper.xml
 
 ### 7.3 编译与启动
 
+> 已内置 Maven Wrapper（Maven 3.9.16），**无需预装 Maven**，也不依赖任何人机器上的 `mvn` 路径。
+
+**推荐：在项目根目录用一键脚本**（自动判断是否需构建、按 JDK 版本拼 `--add-opens`、后台启停 + 健康检查 + 日志轮转）：
+
 ```bash
-# 联网机器（推荐）
-mvn clean package -DskipTests
-mvn spring-boot:run
+cp .env.example .env      # 首次：填数据库口令与 JWT 密钥（.env 不入库）
+./start.sh                # Linux / macOS / WSL / Git Bash
+start.cmd                 # Windows
+```
+
+完整命令、环境变量与服务器部署见 `docs/24_一键启动与部署指南.md`。以下是手动执行的等价步骤。
+
+```bash
+# 标准入口：用 Wrapper（推荐，Linux/macOS）
+./mvnw clean package                    # 首次会下载 Maven 发行版与依赖
+# Windows
+mvnw.cmd clean package
+
+# 本机 ~/.m2/settings.xml 把 localRepository 写死成别人的绝对路径时，改用项目模板
+./mvnw -s .mvn/settings.xml clean package
+
+# 启动（JDK17 需 add-opens；端口取 application.yml，也可显式覆盖）
+java --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.math=ALL-UNNAMED \
+     -jar target/hrent-0.0.1-SNAPSHOT.jar --server.port=8888
 # 预期：Started HrentApplication；Flyway: Successfully validated 8 migrations
 # 服务地址 http://localhost:8888/hrent （port 8888 + context-path /hrent）
 ```
 
-本环境 `mvn` 不在 PATH 且无法访问 Maven 仓库，改用如下等价校验（覆盖语法与类型引用，不做运行时启动）：
+**2026-11-11 实测**：`./mvnw -s .mvn/settings.xml clean package` → `BUILD SUCCESS`，`Tests run: 3, Failures: 0, Errors: 0`，产出 29 MB fat jar；启动 `Started HrentApplication in 21.155s`。一键脚本 `./start.sh build` 同样构建成功（1m46s）。
+
+`pom.xml` 已含 `javax.xml.bind:jaxb-api:2.3.1`（`jjwt 0.9.1` 在 JDK11+ 缺 `DatatypeConverter` 的兜底，见 `docs/23` T-07）。
+
+以下静态校验命令保留作**离线兜底**（无网、无法下载依赖时，仅覆盖语法与类型引用，不做运行时启动）：
 
 ```bash
 javac -encoding UTF-8 -cp "<本地 ~/.m2/repository 下全部 jar>" -d /tmp/v2out $(find src/main/java -name '*.java')
 python -c "import xml.etree.ElementTree as E,glob; [E.parse(f) for f in glob.glob('src/main/resources/mapper/**/*.xml', recursive=True)]"
 ```
+
+`.mvn/settings.xml` 是**可选模板**（无绝对路径/凭据/镜像）；不通过 `maven.config` 强制引用，避免覆盖同事本机的公司镜像配置。`.mvn/jvm.config` 未生成，以兼容 JDK8。
 
 ### 7.4 已知边界
 

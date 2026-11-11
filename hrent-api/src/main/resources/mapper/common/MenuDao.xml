@@ -27,7 +27,7 @@
                name,
                url,
                icon,
-               system,
+               `system`,
                create_by,
                create_time,
                update_by,
@@ -67,7 +67,7 @@
                 and icon = #{icon}
             </if>
             <if test="system != null and system != ''">
-                and system = #{system}
+                and `system` = #{system}
             </if>
             <if test="createBy != null and createBy != ''">
                 and create_by = #{createBy}
@@ -166,7 +166,7 @@
                 icon = #{icon},
             </if>
             <if test="system != null and system != ''">
-                system = #{system},
+                `system` = #{system},
             </if>
             <if test="createBy != null and createBy != ''">
                 create_by = #{createBy},

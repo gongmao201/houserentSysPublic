@@ -1,0 +1,55 @@
+# =============================================================================
+# systemd 服务模板 · 房屋租赁管理系统后端
+#
+# 部署步骤（以 /opt/hrent 为例）：
+#   1. 创建专用用户：sudo useradd -r -s /sbin/nologin hrent
+#   2. 放代码：      sudo mkdir -p /opt/hrent && sudo chown -R hrent:hrent /opt/hrent
+#   3. 放配置：      sudo cp .env.example /opt/hrent/.env && sudo chmod 600 /opt/hrent/.env
+#                    （编辑 .env 填数据库口令与 JWT 密钥；属主改为 hrent）
+#   4. 构建 jar：    cd /opt/hrent/hrent-api && ./mvnw -DskipTests clean package
+#   5. 装服务：      sudo cp deploy/hrent.service /etc/systemd/system/
+#                    sudo systemctl daemon-reload && sudo systemctl enable --now hrent
+#   6. 看日志：      sudo journalctl -u hrent -f
+#
+# 说明：
+#   - 端口/内存参数直接写在本文件，不用 $JAVA_OPTS 变量 —— systemd 不做 shell
+#     词分割，含多个参数的变量会被当成一个参数传给 java，启动必然失败。
+#   - 凭据只放 EnvironmentFile（权限 600），不要写进本文件或提交到仓库。
+# =============================================================================
+
+[Unit]
+Description=Hrent rental system (Spring Boot)
+Documentation=https://github.com/gongmao201/houserentSysPublic
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hrent
+Group=hrent
+WorkingDirectory=/opt/hrent/hrent-api
+
+# 数据库口令、JWT 密钥等敏感配置（文件内为 KEY=VALUE，权限 600）
+EnvironmentFile=/opt/hrent/.env
+
+# JDK 8 请删掉两行 --add-opens；JDK 9+ 保留（部分反射库需要）
+ExecStart=/usr/bin/java \
+    -Xms256m -Xmx512m \
+    -Dfile.encoding=UTF-8 \
+    --add-opens java.base/java.lang=ALL-UNNAMED \
+    --add-opens java.base/java.math=ALL-UNNAMED \
+    -jar /opt/hrent/hrent-api/target/hrent-0.0.1-SNAPSHOT.jar \
+    --server.port=8888
+
+# Spring Boot 收到 SIGTERM 后优雅关闭，退出码 143 视为正常
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65535
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

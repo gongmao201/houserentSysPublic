@@ -10,7 +10,14 @@ module.exports = {
     // Paths
     assetsSubDirectory: 'static',
     assetsPublicPath: '/',
-    proxyTable: {},
+    // 前端代码统一用相对路径 /hrent/**（见 src/config.js），开发模式由这里转发到
+    // 后端，因此不需要在每个请求里写死 host/port。目标地址可用 HRENT_API_BASE 覆盖。
+    proxyTable: {
+      '/hrent': {
+        target: process.env.HRENT_API_BASE || 'http://127.0.0.1:8888',
+        changeOrigin: true
+      }
+    },
 
     // Various Dev Server settings
     host: '0.0.0.0', // 改为监听所有网卡，IPv4/IPv6/局域网均可访问（原 'localhost' 在 Windows 上只绑定 [::1]）

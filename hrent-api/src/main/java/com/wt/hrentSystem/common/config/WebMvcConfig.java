@@ -32,6 +32,23 @@ public class WebMvcConfig implements WebMvcConfigurer {
         }
         registry.addResourceHandler("/images/**")
                 .addResourceLocations("file:" + dir, "classpath:/static/images/");
+
+        // 前端构建产物（hrent-web/dist）映射到 /web/**，让单个 Java 进程同时提供页面
+        // 与接口，部署时不必再单独装 nginx。前端为 hash 路由 + assetsPublicPath './'，
+        // 因此放在 /hrent/web/ 子路径下可直接工作，无需服务端 fallback。
+        // 目录优先取环境变量 HRENT_WEB_DIR（启动脚本注入绝对路径），否则回退到
+        // 运行目录上一级的 hrent-web/dist（脚本以 hrent-api 为工作目录启动）。
+        String webDir = System.getenv("HRENT_WEB_DIR");
+        if (webDir == null || webDir.trim().isEmpty()) {
+            webDir = System.getProperty("user.dir") + "/../hrent-web/dist";
+        }
+        // 规范化：去掉 .. 与多余分隔符，避免 file: 协议解析出越界路径
+        webDir = java.nio.file.Paths.get(webDir).toAbsolutePath().normalize().toString().replace("\\", "/");
+        if (!webDir.endsWith("/")) {
+            webDir = webDir + "/";
+        }
+        registry.addResourceHandler("/web/**")
+                .addResourceLocations("file:" + webDir);
     }
 
     /**
