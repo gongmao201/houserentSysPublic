@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.rating.dao.RatingSummaryDao">
+
+    <resultMap id="RatingSummaryMap" type="com.wt.hrentSystem.rating.entity.RatingSummary">
+        <result property="targetType" column="target_type" jdbcType="VARCHAR"/>
+        <result property="targetId" column="target_id" jdbcType="VARCHAR"/>
+        <result property="officialScore" column="official_score" jdbcType="DECIMAL"/>
+        <result property="userScore" column="user_score" jdbcType="DECIMAL"/>
+        <result property="displayScore" column="display_score" jdbcType="DECIMAL"/>
+        <result property="reviewCount" column="review_count" jdbcType="INTEGER"/>
+        <result property="updatedAt" column="updated_at" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="summaryCols">
+        target_type, target_id, official_score, user_score, display_score, review_count, updated_at
+    </sql>
+
+    <select id="getById" resultMap="RatingSummaryMap">
+        select <include refid="summaryCols"/>
+        from rating_summary
+        where target_type = #{targetType} and target_id = #{targetId}
+    </select>
+
+    <insert id="upsert">
+        insert into rating_summary (<include refid="summaryCols"/>)
+        values (#{targetType}, #{targetId}, #{officialScore}, #{userScore},
+                #{displayScore}, #{reviewCount}, #{updatedAt})
+        on duplicate key update
+            official_score = values(official_score),
+            user_score     = values(user_score),
+            display_score  = values(display_score),
+            review_count   = values(review_count),
+            updated_at     = current_timestamp
+    </insert>
+
+    <delete id="deleteById">
+        delete from rating_summary
+        where target_type = #{targetType} and target_id = #{targetId}
+    </delete>
+
+    <select id="findTopByType" resultMap="RatingSummaryMap">
+        select <include refid="summaryCols"/>
+        from rating_summary
+        where target_type = #{targetType}
+        order by display_score desc
+        limit #{limit}
+    </select>
+
+</mapper>

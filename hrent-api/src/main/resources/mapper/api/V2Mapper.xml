@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.api.dao.V2Mapper">
+
+    <!-- ==================== 用户 / 房源归属 ==================== -->
+    <select id="findRolesByUserId" resultType="string">
+        SELECT role FROM user_role WHERE user_id = #{userId}
+    </select>
+
+    <select id="findLandlordIdByHouseId" resultType="string">
+        SELECT create_by FROM hrent_house_resource
+        WHERE id = #{houseId} AND del_flag = 0 LIMIT 1
+    </select>
+
+    <!-- ==================== 租约 ==================== -->
+    <sql id="leaseCols">
+        g.id AS id, g.house_id AS houseId, g.tenant_id AS tenantId, g.tenant_name AS tenantName,
+        h.create_by AS landlordId, h.address AS houseTitle,
+        g.status AS statusCode, g.start_date AS startDate, g.end_date AS endDate,
+        g.actual_end_date AS actualEndDate, g.money_fen AS moneyFen,
+        g.version AS version, g.contract AS contract, g.create_time AS createTime
+    </sql>
+
+    <sql id="leaseJoin">
+        FROM hrent_house_renting g
+        LEFT JOIN hrent_house_resource h ON h.id = g.house_id
+        WHERE g.del_flag = 0
+    </sql>
+
+    <select id="getLeaseById" resultType="map">
+        SELECT <include refid="leaseCols"/>
+        <include refid="leaseJoin"/>
+        AND g.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findMyLeases" resultType="map">
+        SELECT <include refid="leaseCols"/>
+        <include refid="leaseJoin"/>
+        <if test="!isAdmin">
+            AND (g.tenant_id = #{userId} OR h.create_by = #{userId})
+        </if>
+        <if test="statusCode != null">
+            AND g.status = #{statusCode}
+        </if>
+        ORDER BY g.create_time DESC
+        LIMIT 200
+    </select>
+
+    <!-- 乐观锁：只允许生效中(status=0)的租约退租，重复确认影响行数为 0 → 409 -->
+    <update id="terminateLease">
+        UPDATE hrent_house_renting
+        SET status = 2,
+            actual_end_date = STR_TO_DATE(#{actualEndDate}, '%Y-%m-%d'),
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND status = 0 AND version = #{version} AND del_flag = 0
+    </update>
+
+    <!-- ==================== 报修 ==================== -->
+    <sql id="repairListCols">
+        r.id AS id, r.house_id AS houseId, r.lease_id AS leaseId,
+        r.tenant_id AS tenantId, r.landlord_id AS landlordId,
+        r.type AS type, r.description AS description, r.status AS status,
+        r.expect_time AS expectTime, r.create_time AS createTime, r.version AS version
+    </sql>
+
+    <sql id="repairListWhere">
+        FROM repair_order r
+        WHERE r.del_flag = 0
+        <if test="!isAdmin">
+            AND (r.tenant_id = #{userId} OR r.landlord_id = #{userId})
+        </if>
+        <if test="status != null and status != ''">
+            AND r.status = #{status}
+        </if>
+    </sql>
+
+    <select id="findMyRepairs" resultType="map">
+        SELECT <include refid="repairListCols"/>
+        <include refid="repairListWhere"/>
+        ORDER BY r.create_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countMyRepairs" resultType="int">
+        SELECT COUNT(*) <include refid="repairListWhere"/>
+    </select>
+
+    <update id="transitionRepair">
+        UPDATE repair_order
+        SET status = #{toStatus}, version = version + 1, update_time = NOW()
+        <if test="acceptedBy != null and acceptedBy != ''">, accepted_by = #{acceptedBy}</if>
+        <if test="acceptedAt != null">, accepted_at = #{acceptedAt}</if>
+        <if test="arrivedAt != null">, arrived_at = #{arrivedAt}</if>
+        <if test="completedAt != null">, completed_at = #{completedAt}</if>
+        <if test="confirmedAt != null">, confirmed_at = #{confirmedAt}</if>
+        <if test="cancelReason != null">, cancel_reason = #{cancelReason}</if>
+        <if test="tenantScore != null">, tenant_score = #{tenantScore}</if>
+        <if test="tenantComment != null">, tenant_comment = #{tenantComment}</if>
+        WHERE id = #{id} AND version = #{version} AND status = #{fromStatus} AND del_flag = 0
+    </update>
+
+    <!-- ==================== 账单 ==================== -->
+    <!-- 逾期按 payable_time 动态判定，兼容 V5 已回填的 OVERDUE（待定 T-09） -->
+    <sql id="billStatusExpr">
+        (CASE WHEN r.bill_status IN ('UNPAID','OVERDUE')
+                   AND r.payable_time IS NOT NULL AND r.payable_time &lt; NOW()
+              THEN 'OVERDUE' ELSE r.bill_status END)
+    </sql>
+
+    <sql id="billCols">
+        r.id AS id, r.renting_id AS rentingId, r.period AS period,
+        r.amount_fen AS amountFen, r.paid_fen AS paidFen,
+        <include refid="billStatusExpr"/> AS billStatus,
+        r.channel AS channel, r.voucher_pic AS voucherPic,
+        r.payable_time AS payableDate, r.confirm_at AS confirmAt,
+        r.tenant_id AS tenantId, r.version AS version,
+        h.create_by AS landlordId, h.address AS houseTitle
+    </sql>
+
+    <sql id="billJoin">
+        FROM hrent_rent r
+        LEFT JOIN hrent_house_renting g ON g.id = r.renting_id
+        LEFT JOIN hrent_house_resource h ON h.id = g.house_id
+        WHERE r.del_flag = 0
+    </sql>
+
+    <select id="getBillById" resultType="map">
+        SELECT <include refid="billCols"/>
+        <include refid="billJoin"/>
+        AND r.id = #{id}
+        LIMIT 1
+    </select>
+
+    <sql id="billListWhere">
+        <include refid="billJoin"/>
+        <if test="!isAdmin">
+            AND (r.tenant_id = #{userId} OR h.create_by = #{userId})
+        </if>
+        <if test="period != null and period != ''">
+            AND r.period = #{period}
+        </if>
+        <if test="status != null and status != ''">
+            AND <include refid="billStatusExpr"/> = #{status}
+        </if>
+    </sql>
+
+    <select id="findMyBills" resultType="map">
+        SELECT <include refid="billCols"/>
+        <include refid="billListWhere"/>
+        ORDER BY r.payable_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countMyBills" resultType="int">
+        SELECT COUNT(*) <include refid="billListWhere"/>
+    </select>
+
+    <select id="findPendingBills" resultType="map">
+        SELECT <include refid="billCols"/>
+        <include refid="billJoin"/>
+        AND r.bill_status = 'MARKED'
+        <if test="!isAdmin">
+            AND h.create_by = #{userId}
+        </if>
+        ORDER BY r.update_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countPendingBills" resultType="int">
+        SELECT COUNT(*)
+        <include refid="billJoin"/>
+        AND r.bill_status = 'MARKED'
+        <if test="!isAdmin">
+            AND h.create_by = #{userId}
+        </if>
+    </select>
+
+    <select id="findBillIdByRentingPeriod" resultType="string">
+        SELECT id FROM hrent_rent
+        WHERE renting_id = #{rentingId} AND period = #{period} AND del_flag = 0
+        LIMIT 1
+    </select>
+
+    <select id="getRentingBrief" resultType="map">
+        SELECT g.id AS rentingId, g.tenant_id AS tenantId, g.money_fen AS moneyFen,
+               g.status AS statusCode, h.create_by AS landlordId, h.address AS houseTitle
+        FROM hrent_house_renting g
+        LEFT JOIN hrent_house_resource h ON h.id = g.house_id
+        WHERE g.id = #{rentingId} AND g.del_flag = 0
+        LIMIT 1
+    </select>
+
+    <insert id="insertBill">
+        INSERT INTO hrent_rent
+            (id, renting_id, period, amount_fen, paid_fen, bill_status, state,
+             payable_time, tenant_id, create_time, del_flag, version)
+        VALUES
+            (#{id}, #{rentingId}, #{period}, #{amountFen}, 0, 'UNPAID', 1,
+             STR_TO_DATE(#{payableDate}, '%Y-%m-%d'), #{tenantId}, NOW(), 0, 0)
+    </insert>
+
+    <update id="updateBillPaid">
+        UPDATE hrent_rent
+        SET paid_fen = #{paidFen}, channel = #{channel}, voucher_pic = #{voucherPic},
+            bill_status = 'MARKED', version = version + 1, update_time = NOW()
+        WHERE id = #{id} AND version = #{version}
+          AND bill_status IN ('UNPAID','OVERDUE') AND del_flag = 0
+    </update>
+
+    <update id="confirmBill">
+        UPDATE hrent_rent
+        SET bill_status = 'PAID', confirm_at = NOW(), pay_time = NOW(), state = 2,
+            version = version + 1, update_time = NOW()
+        WHERE id = #{id} AND version = #{version}
+          AND bill_status = 'MARKED' AND del_flag = 0
+    </update>
+
+    <!-- ==================== AI 推荐（结构化规则检索） ==================== -->
+    <sql id="recommendWhere">
+        FROM hrent_house_resource h
+        WHERE h.del_flag = 0 AND h.state IN (0, 1)
+        <if test="region != null and region != ''">
+            AND (h.county LIKE CONCAT('%', #{region}, '%')
+                 OR h.city LIKE CONCAT('%', #{region}, '%')
+                 OR h.address LIKE CONCAT('%', #{region}, '%'))
+        </if>
+        <if test="budgetMaxFen != null">
+            AND (h.money_fen IS NULL OR h.money_fen &lt;= #{budgetMaxFen})
+        </if>
+        <if test="rooms != null">
+            AND h.house_type LIKE CONCAT(#{rooms}, '室%')
+        </if>
+        <if test="tagKeywords != null and tagKeywords.size() &gt; 0">
+            <foreach collection="tagKeywords" item="kw">
+                AND EXISTS (
+                    SELECT 1 FROM hrent_tag_and_house th
+                    JOIN hrent_tag t ON t.id = th.tag_id
+                    WHERE th.house_id = h.id AND th.del_flag = 0
+                      AND (t.name LIKE CONCAT('%', #{kw}, '%')
+                           OR h.`describe` LIKE CONCAT('%', #{kw}, '%'))
+                )
+            </foreach>
+        </if>
+    </sql>
+
+    <select id="findHousesForRecommend" resultType="map">
+        SELECT h.id AS houseId, h.address AS title, h.county AS region,
+               h.money_fen AS priceFen, h.house_type AS houseType, h.area AS area,
+               (SELECT GROUP_CONCAT(t2.name SEPARATOR ',')
+                  FROM hrent_tag_and_house th2 JOIN hrent_tag t2 ON t2.id = th2.tag_id
+                 WHERE th2.house_id = h.id AND th2.del_flag = 0) AS tagNames
+        <include refid="recommendWhere"/>
+        ORDER BY h.money_fen ASC, h.create_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countHousesForRecommend" resultType="int">
+        SELECT COUNT(*) <include refid="recommendWhere"/>
+    </select>
+
+    <select id="getHouseBrief" resultType="map">
+        SELECT h.id AS houseId, h.address AS title, h.county AS region,
+               h.money_fen AS priceFen, h.house_type AS houseType
+        FROM hrent_house_resource h
+        WHERE h.id = #{houseId} AND h.del_flag = 0
+        LIMIT 1
+    </select>
+
+</mapper>

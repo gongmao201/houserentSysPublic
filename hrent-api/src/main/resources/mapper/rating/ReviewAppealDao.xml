@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.rating.dao.ReviewAppealDao">
+
+    <resultMap id="ReviewAppealMap" type="com.wt.hrentSystem.rating.entity.ReviewAppeal">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="reviewId" column="review_id" jdbcType="VARCHAR"/>
+        <result property="applicantId" column="applicant_id" jdbcType="VARCHAR"/>
+        <result property="reason" column="reason" jdbcType="VARCHAR"/>
+        <result property="status" column="status" jdbcType="VARCHAR"/>
+        <result property="handledBy" column="handled_by" jdbcType="VARCHAR"/>
+        <result property="handledAt" column="handled_at" jdbcType="TIMESTAMP"/>
+        <result property="result" column="result" jdbcType="VARCHAR"/>
+        <result property="createTime" column="create_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="appealCols">
+        id, review_id, applicant_id, reason, status, handled_by, handled_at, result, create_time
+    </sql>
+
+    <insert id="insert">
+        insert into review_appeal (<include refid="appealCols"/>)
+        values (#{id}, #{reviewId}, #{applicantId}, #{reason}, #{status},
+                #{handledBy}, #{handledAt}, #{result}, #{createTime})
+    </insert>
+
+    <select id="findByReviewId" resultMap="ReviewAppealMap">
+        select <include refid="appealCols"/>
+        from review_appeal
+        where review_id = #{reviewId}
+        order by create_time desc
+    </select>
+
+    <select id="findList" resultMap="ReviewAppealMap">
+        select <include refid="appealCols"/>
+        from review_appeal
+        <where>
+            <if test="id != null and id != ''">and id = #{id}</if>
+            <if test="reviewId != null and reviewId != ''">and review_id = #{reviewId}</if>
+            <if test="applicantId != null and applicantId != ''">and applicant_id = #{applicantId}</if>
+            <if test="status != null and status != ''">and status = #{status}</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <update id="updateHandled">
+        update review_appeal
+        <set>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="handledBy != null and handledBy != ''">handled_by = #{handledBy},</if>
+            <if test="handledAt != null">handled_at = #{handledAt},</if>
+            <if test="result != null">result = #{result},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+</mapper>

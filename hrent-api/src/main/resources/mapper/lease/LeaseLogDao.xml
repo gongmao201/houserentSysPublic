@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.lease.dao.LeaseLogDao">
+
+    <resultMap id="LeaseLogMap" type="com.wt.hrentSystem.lease.entity.LeaseLog">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="leaseId" column="lease_id" jdbcType="VARCHAR"/>
+        <result property="fromStatus" column="from_status" jdbcType="TINYINT"/>
+        <result property="toStatus" column="to_status" jdbcType="TINYINT"/>
+        <result property="operatorId" column="operator_id" jdbcType="VARCHAR"/>
+        <result property="remark" column="remark" jdbcType="VARCHAR"/>
+        <result property="createTime" column="create_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="leaseLogCols">
+        id, lease_id, from_status, to_status, operator_id, remark, create_time
+    </sql>
+
+    <insert id="insert">
+        insert into lease_log (<include refid="leaseLogCols"/>)
+        values (#{id}, #{leaseId}, #{fromStatus}, #{toStatus}, #{operatorId}, #{remark}, #{createTime})
+    </insert>
+
+    <select id="findByLeaseId" resultMap="LeaseLogMap">
+        select <include refid="leaseLogCols"/>
+        from lease_log
+        where lease_id = #{leaseId}
+        order by create_time
+    </select>
+
+    <select id="findList" resultMap="LeaseLogMap">
+        select <include refid="leaseLogCols"/>
+        from lease_log
+        <where>
+            <if test="id != null and id != ''">and id = #{id}</if>
+            <if test="leaseId != null and leaseId != ''">and lease_id = #{leaseId}</if>
+            <if test="fromStatus != null">and from_status = #{fromStatus}</if>
+            <if test="toStatus != null">and to_status = #{toStatus}</if>
+            <if test="operatorId != null and operatorId != ''">and operator_id = #{operatorId}</if>
+        </where>
+        order by create_time
+    </select>
+
+</mapper>

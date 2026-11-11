@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.rating.dao.HouseAuditDao">
+
+    <resultMap id="HouseAuditMap" type="com.wt.hrentSystem.rating.entity.HouseAudit">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="houseId" column="house_id" jdbcType="VARCHAR"/>
+        <result property="auditorId" column="auditor_id" jdbcType="VARCHAR"/>
+        <result property="photoReal" column="photo_real" jdbcType="TINYINT"/>
+        <result property="addressVerified" column="address_verified" jdbcType="TINYINT"/>
+        <result property="facilityMatch" column="facility_match" jdbcType="TINYINT"/>
+        <result property="priceReasonable" column="price_reasonable" jdbcType="TINYINT"/>
+        <result property="contractUploaded" column="contract_uploaded" jdbcType="TINYINT"/>
+        <result property="safetyChecked" column="safety_checked" jdbcType="TINYINT"/>
+        <result property="depositRuleClear" column="deposit_rule_clear" jdbcType="TINYINT"/>
+        <result property="noComplaint" column="no_complaint" jdbcType="TINYINT"/>
+        <result property="score" column="score" jdbcType="DECIMAL"/>
+        <result property="conclusion" column="conclusion" jdbcType="VARCHAR"/>
+        <result property="createTime" column="create_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="houseAuditCols">
+        id, house_id, auditor_id, photo_real, address_verified, facility_match,
+        price_reasonable, contract_uploaded, safety_checked, deposit_rule_clear,
+        no_complaint, score, conclusion, create_time
+    </sql>
+
+    <insert id="insert">
+        insert into house_audit (<include refid="houseAuditCols"/>)
+        values (#{id}, #{houseId}, #{auditorId}, #{photoReal}, #{addressVerified},
+                #{facilityMatch}, #{priceReasonable}, #{contractUploaded}, #{safetyChecked},
+                #{depositRuleClear}, #{noComplaint}, #{score}, #{conclusion}, #{createTime})
+    </insert>
+
+    <select id="findLatestByHouseId" resultMap="HouseAuditMap">
+        select <include refid="houseAuditCols"/>
+        from house_audit
+        where house_id = #{houseId}
+        order by create_time desc
+        limit 1
+    </select>
+
+    <select id="findByHouseId" resultMap="HouseAuditMap">
+        select <include refid="houseAuditCols"/>
+        from house_audit
+        where house_id = #{houseId}
+        order by create_time desc
+    </select>
+
+    <select id="findList" resultMap="HouseAuditMap">
+        select <include refid="houseAuditCols"/>
+        from house_audit
+        <where>
+            <if test="id != null and id != ''">and id = #{id}</if>
+            <if test="houseId != null and houseId != ''">and house_id = #{houseId}</if>
+            <if test="auditorId != null and auditorId != ''">and auditor_id = #{auditorId}</if>
+        </where>
+        order by create_time desc
+    </select>
+
+</mapper>

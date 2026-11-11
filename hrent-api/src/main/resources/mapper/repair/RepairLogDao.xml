@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.repair.dao.RepairLogDao">
+
+    <resultMap id="RepairLogMap" type="com.wt.hrentSystem.repair.entity.RepairLog">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="repairId" column="repair_id" jdbcType="VARCHAR"/>
+        <result property="fromStatus" column="from_status" jdbcType="VARCHAR"/>
+        <result property="toStatus" column="to_status" jdbcType="VARCHAR"/>
+        <result property="operatorId" column="operator_id" jdbcType="VARCHAR"/>
+        <result property="operatorRole" column="operator_role" jdbcType="VARCHAR"/>
+        <result property="remark" column="remark" jdbcType="VARCHAR"/>
+        <result property="createTime" column="create_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="repairLogCols">
+        id, repair_id, from_status, to_status, operator_id, operator_role, remark, create_time
+    </sql>
+
+    <insert id="insert">
+        insert into repair_log (<include refid="repairLogCols"/>)
+        values (#{id}, #{repairId}, #{fromStatus}, #{toStatus}, #{operatorId},
+                #{operatorRole}, #{remark}, #{createTime})
+    </insert>
+
+    <select id="findByRepairId" resultMap="RepairLogMap">
+        select <include refid="repairLogCols"/>
+        from repair_log
+        where repair_id = #{repairId}
+        order by create_time
+    </select>
+
+    <select id="findList" resultMap="RepairLogMap">
+        select <include refid="repairLogCols"/>
+        from repair_log
+        <where>
+            <if test="id != null and id != ''">and id = #{id}</if>
+            <if test="repairId != null and repairId != ''">and repair_id = #{repairId}</if>
+            <if test="toStatus != null and toStatus != ''">and to_status = #{toStatus}</if>
+            <if test="operatorId != null and operatorId != ''">and operator_id = #{operatorId}</if>
+        </where>
+        order by create_time
+    </select>
+
+</mapper>

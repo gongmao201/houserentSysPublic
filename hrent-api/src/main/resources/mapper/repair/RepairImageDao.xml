@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.repair.dao.RepairImageDao">
+
+    <resultMap id="RepairImageMap" type="com.wt.hrentSystem.repair.entity.RepairImage">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="repairId" column="repair_id" jdbcType="VARCHAR"/>
+        <result property="url" column="url" jdbcType="VARCHAR"/>
+        <result property="stage" column="stage" jdbcType="VARCHAR"/>
+        <result property="sort" column="sort" jdbcType="INTEGER"/>
+        <result property="createTime" column="create_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="repairImageCols">id, repair_id, url, stage, sort, create_time</sql>
+
+    <insert id="insert">
+        insert into repair_image (<include refid="repairImageCols"/>)
+        values (#{id}, #{repairId}, #{url}, #{stage}, #{sort}, #{createTime})
+    </insert>
+
+    <insert id="batchInsert">
+        insert into repair_image (<include refid="repairImageCols"/>)
+        values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.id}, #{item.repairId}, #{item.url}, #{item.stage}, #{item.sort}, #{item.createTime})
+        </foreach>
+    </insert>
+
+    <select id="findByRepairId" resultMap="RepairImageMap">
+        select <include refid="repairImageCols"/>
+        from repair_image
+        where repair_id = #{repairId}
+        <if test="stage != null and stage != ''">and stage = #{stage}</if>
+        order by stage, sort
+    </select>
+
+    <delete id="deleteByRepairId">
+        delete from repair_image where repair_id = #{repairId}
+    </delete>
+
+</mapper>

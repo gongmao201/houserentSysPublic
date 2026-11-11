@@ -1,0 +1,346 @@
+-- =====================================================================
+-- 99 · 评审建议变更（DRAFT）
+-- =====================================================================
+-- 定位：评审草稿，不是 Flyway 迁移脚本。
+-- 位置：db/design/，不在 db/migration/，Flyway 的 locations 不会扫描到这里。
+-- 命名：禁止以 V 开头，禁止改名为 V7__xxx.sql；采纳后另起正式迁移。
+-- 使用：逐段评审，取消注释后先在备份库执行；不要直接在本文件上跑。
+-- 日期：2026-11-02 初稿 / 2026-11-03 修订（§9 判定对齐执行事实、§2 补 hrent_rent FK、新增 §12/§13）
+-- 依据：docs/17 §7（G-01..G-15 权威台账）、docs/15 §6、docs/16 §5
+-- 前提：生产库已执行 baseline 0 + V1–V7（8 条 success=1），V1–V7 全部冻结。
+--       本文件任何一段被采纳，都必须作为新的 V8（或更高）落地，禁止回改历史脚本。
+-- =====================================================================
+
+-- =====================================================================
+-- 1. G-01  bill_status 无 CHECK
+-- =====================================================================
+-- 现象：V5:19 定义 bill_status VARCHAR(16) NOT NULL DEFAULT 'UNPAID'，
+--       全库 12 条 CHECK 不含它；V5:48-51 只加了索引/唯一键。
+-- 影响：服务层写错枚举值也能落库，逾期统计会漏。
+-- 判定：采纳，进 V7。
+--
+-- 预检：现有脏值
+-- SELECT bill_status, COUNT(*) FROM hrent_rent GROUP BY bill_status;
+--
+-- DRAFT DDL:
+-- ALTER TABLE hrent_rent
+--   ADD CONSTRAINT ck_rent_bill_status
+--   CHECK (bill_status IN ('UNPAID','MARKED','PAID','OVERDUE'));
+--
+-- 附带：house_audit.score 也没有 CHECK（V3:28），一并补。
+-- ALTER TABLE house_audit
+--   ADD CONSTRAINT ck_house_audit_score
+--   CHECK (score >= 0.00 AND score <= 5.00);
+--
+-- 附带 2：ai_feedback.position 也没有 CHECK（V6:34，注释写「推荐位次 1~10」）。
+--         既然 G-01 的原则是「枚举/有界值必须有 CHECK」，这条一视同仁。
+-- ALTER TABLE ai_feedback
+--   ADD CONSTRAINT ck_ai_position
+--   CHECK (position IS NULL OR (position >= 1 AND position <= 10));
+
+-- =====================================================================
+-- 2. G-02  全库无 FOREIGN KEY
+-- =====================================================================
+-- 现象：V1–V7 中 FOREIGN KEY / REFERENCES 零命中；子表外键列全是裸 VARCHAR(32)
+--       （bill_item.rent_id、review.lease_id、repair_log.repair_id 等）。
+-- 影响：跨表一致性全靠应用层；删主表/迁移时容易留孤儿。
+-- 判定：延后。加 FK 会锁表，且与软删、批量迁移冲突；先补孤儿检查。
+--
+-- 预检（先跑，必须全部为 0 才能谈 FK）：
+--   权威清单在 docs/16 §5，本节不再重复维护第二份。
+--   另需补一条：账单主表到租约表的链路，原清单遗漏。
+-- SELECT COUNT(*) FROM hrent_rent r LEFT JOIN hrent_house_renting h ON h.id=r.renting_id WHERE h.id IS NULL;
+--
+-- DRAFT DDL（仅在预检全 0、且确认能接受锁表后执行）：
+-- ALTER TABLE hrent_rent
+--   ADD CONSTRAINT fk_rent_renting FOREIGN KEY (renting_id)
+--   REFERENCES hrent_house_renting(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+-- ALTER TABLE bill_item
+--   ADD CONSTRAINT fk_bill_item_rent FOREIGN KEY (rent_id)
+--   REFERENCES hrent_rent(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+-- ALTER TABLE review
+--   ADD CONSTRAINT fk_review_lease FOREIGN KEY (lease_id)
+--   REFERENCES hrent_house_renting(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+-- ALTER TABLE review_appeal
+--   ADD CONSTRAINT fk_appeal_review FOREIGN KEY (review_id)
+--   REFERENCES review(id) ON DELETE CASCADE ON UPDATE CASCADE;
+-- ALTER TABLE lease_log
+--   ADD CONSTRAINT fk_lease_log_lease FOREIGN KEY (lease_id)
+--   REFERENCES hrent_house_renting(id) ON DELETE CASCADE ON UPDATE CASCADE;
+-- ALTER TABLE repair_log
+--   ADD CONSTRAINT fk_repair_log_order FOREIGN KEY (repair_id)
+--   REFERENCES repair_order(id) ON DELETE CASCADE ON UPDATE CASCADE;
+-- ALTER TABLE repair_image
+--   ADD CONSTRAINT fk_repair_image_order FOREIGN KEY (repair_id)
+--   REFERENCES repair_order(id) ON DELETE CASCADE ON UPDATE CASCADE;
+--
+-- 不给多态列加 FK：review.target_id、rating_summary.target_id 指向两张表，
+-- MySQL 不支持多态 FK，只能靠应用层 + 定期清理。
+
+-- =====================================================================
+-- 3. G-03  hrent_rent 双状态源（state + bill_status）
+-- =====================================================================
+-- 现象：V1:202 state INT（0 未到/1 已到/2 已交）；V5:19 bill_status
+--       （UNPAID/MARKED/PAID/OVERDUE）；V5:34/39-45 回填时同时读 state。
+-- 影响：两个状态源会打架；老 14 个 Controller 仍读 state。
+-- 判定：延后。本期保留双写，先定映射，不改老接口。
+--
+-- 映射：
+--   state=0 未到   -> bill_status=UNPAID
+--   state=1 已到   -> bill_status=UNPAID 或 OVERDUE（看 payable_time）
+--   state=2 已交   -> bill_status=PAID
+--
+-- 一次性回填（只在迁移后跑一次；执行前备份）：
+-- UPDATE hrent_rent
+-- SET bill_status = CASE
+--       WHEN state = 2 THEN 'PAID'
+--       WHEN payable_time IS NOT NULL AND payable_time < NOW() THEN 'OVERDUE'
+--       ELSE 'UNPAID'
+--     END
+-- WHERE bill_status IS NULL OR bill_status = 'UNPAID';
+--
+-- 长期方案（二期）：新增写接口只写 bill_status；老 Controller 改完后删 state。
+-- 本期禁止删 state（14 个存量 Controller 依赖）。
+
+-- =====================================================================
+-- 4. G-04  12 张新表缺 create_by/update_by
+-- =====================================================================
+-- 现象：information_schema 实测，12 张新表 create_by/update_by 命中 0；
+--       存量 13 表统一有 6 列审计组。
+-- 影响：无法回答「谁建的」；但业务列已承担操作人：
+--       review.reviewer_id、review_appeal.applicant_id/handled_by、
+--       repair_order.tenant_id/landlord_id/accepted_by、
+--       house_audit.auditor_id、lease_log.operator_id、repair_log.operator_id。
+-- 判定：拒绝统一补列。补 10 张表要开 V7，实体全改继承，收益低。
+--       如评审坚持，至少只补 4 张主表，不补日志/明细表。
+--
+-- DRAFT（不推荐，仅备查）：
+-- ALTER TABLE review        ADD COLUMN create_by VARCHAR(32) DEFAULT NULL, ADD COLUMN update_by VARCHAR(32) DEFAULT NULL;
+-- ALTER TABLE repair_order  ADD COLUMN create_by VARCHAR(32) DEFAULT NULL, ADD COLUMN update_by VARCHAR(32) DEFAULT NULL;
+-- ALTER TABLE house_audit   ADD COLUMN create_by VARCHAR(32) DEFAULT NULL;
+-- ALTER TABLE bill_item     ADD COLUMN create_by VARCHAR(32) DEFAULT NULL;
+
+-- =====================================================================
+-- 5. G-05  review.dimensions / images 是 JSON，无结构校验
+-- =====================================================================
+-- 现象：V3:48 dimensions JSON、V3:50 images JSON；3 条 CHECK 只覆盖
+--       score/target_type/status，不校验 JSON 内部结构。
+-- 影响：维度键名会漂移（decoration/location/...），前端图表取不到值。
+-- 判定：二期列化；本期应用层校验 + 文档冻结键名。
+--
+-- 方案 A（本期，应用层）：提交时校验
+--   HOUSE 维度：decoration, location, costPerformance, landlordCoop, noise
+--   LANDLORD 维度：responseSpeed, repairSpeed, depositRefund, communication
+--   每项 1.0–5.0；images 数组长度 <= 3。
+--
+-- 方案 B（二期，列化，推荐）：
+-- ALTER TABLE review
+--   ADD COLUMN dim_decoration      DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_location        DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_cost_perf       DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_landlord_coop   DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_noise           DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_response_speed  DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_repair_speed    DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_deposit_refund  DECIMAL(2,1) DEFAULT NULL,
+--   ADD COLUMN dim_communication   DECIMAL(2,1) DEFAULT NULL;
+--
+-- 方案 C（可选，需在 8.0.41 验证 JSON_SCHEMA_VALID 是否被 CHECK 接受）：
+-- ALTER TABLE review
+--   ADD CONSTRAINT ck_review_images_len
+--   CHECK (images IS NULL OR JSON_LENGTH(images) <= 3);
+
+-- =====================================================================
+-- 6. G-06  period 可空 + uk(renting_id, period)
+-- =====================================================================
+-- 现象：V5:16 period VARCHAR(7) DEFAULT NULL；V5:49
+--       UNIQUE KEY uk_renting_period (renting_id, period)。
+--       MySQL 唯一索引允许多个 NULL，同一租约可插多张无账期账单。
+-- 影响：账单重复生成；对账口径不唯一。
+-- 判定：采纳，进 V7；先回填再改 NOT NULL。
+--
+-- 预检：
+-- SELECT renting_id, period, COUNT(*) FROM hrent_rent
+-- WHERE period IS NOT NULL GROUP BY renting_id, period HAVING COUNT(*) > 1;
+-- SELECT COUNT(*) FROM hrent_rent WHERE period IS NULL;
+--
+-- 回填（只处理能算出账期的）：
+-- UPDATE hrent_rent
+-- SET period = DATE_FORMAT(payable_time, '%Y-%m')
+-- WHERE period IS NULL AND payable_time IS NOT NULL;
+--
+-- 剩余 NULL 必须人工清单处理，不能静默删。
+--
+-- DRAFT DDL（回填后、剩余 NULL 已处理）：
+-- ALTER TABLE hrent_rent
+--   MODIFY COLUMN period VARCHAR(7) NOT NULL COMMENT '账期 YYYY-MM';
+--
+-- 备选（不想改 NOT NULL）：加生成列 + 唯一键，把 NULL 收敛成 ''
+-- ALTER TABLE hrent_rent
+--   ADD COLUMN period_key VARCHAR(7)
+--     GENERATED ALWAYS AS (COALESCE(period, '')) STORED,
+--   ADD UNIQUE KEY uk_renting_period_key (renting_id, period_key);
+
+-- =====================================================================
+-- 7. G-07  rating_summary 多态无引用完整性
+-- =====================================================================
+-- 现象：V3:90-97 target_type VARCHAR(16)、target_id VARCHAR(32)、
+--       复合主键；target_type 连 CHECK 都没有；target_id 可指向不存在对象。
+-- 影响：汇总表出现孤儿行；列表排序读到脏分。
+-- 判定：延后加 FK（多态不支持），先加 CHECK + 定期清理。
+--
+-- DRAFT DDL（采纳，进 V7）：
+-- ALTER TABLE rating_summary
+--   ADD CONSTRAINT ck_rating_target_type
+--   CHECK (target_type IN ('HOUSE','LANDLORD'));
+--
+-- 孤儿清理（每日/每周跑，先 SELECT 再 DELETE）：
+-- SELECT s.target_type, s.target_id
+-- FROM rating_summary s
+-- LEFT JOIN hrent_house_resource h
+--   ON s.target_type = 'HOUSE' AND h.id = s.target_id
+-- LEFT JOIN sys_user u
+--   ON s.target_type = 'LANDLORD' AND u.id = s.target_id
+-- WHERE h.id IS NULL AND u.id IS NULL;
+
+-- =====================================================================
+-- 8. G-08  12 张新表仅 2 张有 del_flag
+-- =====================================================================
+-- 现象：仅 review、repair_order 有 del_flag；其余 10 张没有。
+-- 影响：软删策略不统一。
+-- 判定：拒绝统一补 del_flag。日志/明细/汇总表不应软删：
+--       lease_log、repair_log 软删会断时间线；
+--       bill_item 软删会让金额对账复杂；
+--       rating_summary 可重算，不需要软删；
+--       review_appeal 是工单，物理删或归档更合适。
+--
+-- 策略（写进 docs/15 §3.5）：
+--   存量 13 表 + review + repair_order：del_flag 逻辑删
+--   其余 10 张：只追加或物理删，不提供软删
+--
+-- 如果评审坚持要给 review_appeal 加 del_flag，DRAFT：
+-- ALTER TABLE review_appeal ADD COLUMN del_flag INT NOT NULL DEFAULT 0;
+
+-- =====================================================================
+-- 9. G-09  V1 缺 sys_menu 基础数据（已关闭，不再改 V1）
+-- =====================================================================
+-- 现象：首次迁移前 V1:299-314 只有 admin/logo/字典 3 条 INSERT，没有 sys_menu；
+--       house_rent.sql:347-380 有 4 条 INSERT、共 24 行菜单。
+--       空库走 V1–V7 后菜单为空，登录后左侧空白。
+--
+-- 判定（v1.1 修订，与执行事实对齐）：
+--   该缺口已在 Flyway 首次执行前修掉——4 条菜单 INSERT 补入 V1，并随 V1
+--   于 2026-11-02 执行；V1 的 checksum 已写入 flyway_schema_history。
+--   **窗口期已关闭**：从现在起任何环境都不得再改 V1，改则 validate 失败、服务起不来。
+--   所以 G-09 的状态是「已关闭」，不是「直接补进 V1」。
+--
+--   实证（2026-11-03 23:11 启动日志）：
+--     Flyway Community Edition 7.7.3
+--     Successfully validated 8 migrations (execution time 00:00.091s)
+--     Schema `house_rent` is up to date. No migration necessary.
+--   validate 通过，说明 V1–V7 的 checksum 与执行时完全一致，V1 确实没被事后改动。
+--
+-- 若还要补 24 行以外的菜单（例如新增报修/评分菜单），只能新增迁移：
+--
+-- DRAFT（V8，不在此文件执行）：
+-- INSERT IGNORE INTO sys_menu
+--   (id, parent_id, role_id, sort, name, url, icon, `system`, create_by, create_time, update_by, update_time, del_flag)
+-- VALUES
+--   ('200', NULL, '2', 8, '评价管理', '/reviewManage', 'el-icon-star-off', '1', '1', NOW(), '1', NOW(), 0),
+--   ('201', NULL, '2', 9, '报修管理', '/repairManage', 'el-icon-tools',      '1', '1', NOW(), '1', NOW(), 0);
+--
+-- 预检：id 冲突（在目标库执行，必须为 0）
+-- SELECT COUNT(*) FROM sys_menu WHERE id IN ('200','201');
+
+-- =====================================================================
+-- 10. G-10  存量 XML 的 schema 前缀不一致
+-- =====================================================================
+-- 现象：部分语句写 house_rent.xxx，部分写裸表名：
+--   DictDao.xml:66,67,181
+--   MenuDao.xml:89,93
+--   MessageDao.xml:141,148
+--   UserDao.xml:42,47
+--   ApplyRentDao.xml:33,115
+--   ApplyViewDao.xml:109,148
+--   HouseRentingDao.xml:27,91,101,109,117
+--   HouseResourceDao.xml:41,117,191,243,260,269,271,282,284,294,296,305
+--   RentDao.xml:28,88,90
+--   TagDao.xml:65
+-- 影响：换库名（如 house_rent_fresh）时，带前缀的语句会指向旧库；
+--       不带前缀的语句跟随连接串默认库，行为不一致。
+-- 判定：本期不动（改 12 个存量 XML 超出范围）；新 XML 一律不带前缀。
+--       二期统一去前缀，或统一用 ${schema} 占位（需防注入）。
+--
+-- 改造清单（二期）：
+--   1) 逐文件替换 house_rent. -> 空
+--   2) 在测试库 house_rent_fresh 跑 103 接口快照，diff 0 才算过
+--   3) 生产连接串固定默认库；禁止跨库 JOIN
+
+-- =====================================================================
+-- 11. G-13  BaseEntity.preInsert 空指针（代码缺口，非 SQL）
+-- =====================================================================
+-- 现象：BaseEntity:49-53 直接 this.getCurrentUser().getId()；
+--       currentUser 为 null 时 NPE。
+-- 影响：新表实体若继承 BaseEntity 且无登录上下文，insert 会崩。
+-- 判定：本期不改 BaseEntity；review / repair_order 两个继承实体
+--       override preInsert()，只生成 UUID + 时间 + delFlag。
+-- 这条不在 SQL 里改，记录在 docs/15 G-13。
+
+-- =====================================================================
+-- 12. G-14  sys_user.role 与 user_role 双状态源
+-- =====================================================================
+-- 现象：sys_user.role INT 单值（V1:173），user_role.role VARCHAR(16) 多值（V2:22）；
+--       登录鉴权、菜单下发、JWT 载荷都读 role，多角色表没有写入口。
+-- 影响：同一用户在两张表里的角色可能不一致，菜单与接口权限会打架。
+-- 判定：本期不删 role（14 个 Controller 依赖它，删了就 500）。
+--       把 role 降级为「主角色快照」：写路径只走 user_role，服务层写完再同步
+--       sys_user.role = 主角色；role 不再作为鉴权事实来源。
+--
+-- 预检：两处不一致的账号（应能解释每一条）
+-- SELECT u.id, u.role, GROUP_CONCAT(r.role ORDER BY r.role) AS roles
+-- FROM sys_user u JOIN user_role r ON r.user_id = u.id
+-- GROUP BY u.id, u.role
+-- HAVING roles NOT LIKE CONCAT('%', CASE u.role WHEN 0 THEN 'TENANT'
+--                                        WHEN 1 THEN 'LANDLORD'
+--                                        ELSE 'ADMIN' END, '%');
+--
+-- 本期不加约束，只加对账；二期确认无存量冲突后，可把 role 改成
+-- GENERATED 列或直接删除。
+
+-- =====================================================================
+-- 13. G-15  「同一房源同时只有一条 status=0 租约」无数据库约束
+-- =====================================================================
+-- 现象：FR-LEASE-01 的业务规则只写在需求里；V2:71-77 只加了普通索引
+--       idx_house_status，MySQL 8 不支持部分唯一索引（WHERE status=0）。
+-- 影响：并发签约（或补录）可能产生两条生效租约，账单、评价、押金都会翻倍。
+-- 判定：采纳生成列方案。把「是否生效」物化成 0/1，非生效行取 NULL，
+--       利用「唯一索引允许多个 NULL」实现部分唯一。
+--
+-- 预检（必须先为 0，否则建索引会失败）：
+-- SELECT house_id, COUNT(*) c FROM hrent_house_renting
+-- WHERE status = 0 AND del_flag = 0 GROUP BY house_id HAVING c > 1;
+--
+-- DRAFT DDL（V8）：
+-- ALTER TABLE hrent_house_renting
+--   ADD COLUMN active_flag TINYINT
+--     GENERATED ALWAYS AS (CASE WHEN status = 0 AND del_flag = 0 THEN 1 ELSE NULL END) STORED
+--     COMMENT '生效租约标记；仅为建唯一键服务，业务不读',
+--   ADD UNIQUE KEY uk_house_active (house_id, active_flag);
+--
+-- 回退：DROP INDEX uk_house_active ON hrent_house_renting;
+--       ALTER TABLE hrent_house_renting DROP COLUMN active_flag;
+--
+-- 不采纳此项时的兜底：服务层签约前 SELECT ... FOR UPDATE 校验 + 每日对账 SQL
+-- （docs/16 §5 最后一条）。
+
+-- =====================================================================
+-- 转 V8 准入清单
+-- =====================================================================
+-- [ ] 已在备份库（house_rent_bak_YYYYMMDD）完整执行通过
+-- [ ] 预检 SQL 全部为 0（脏值、孤儿、重复账期、id 冲突）
+-- [ ] verify.sql 已增加对应检查项
+-- [ ] 评审签字（PM + BE + QA）
+-- [ ] 已执行过 V1–V7 的环境，禁止直接补改历史脚本；只能新增 V8
+-- [ ] 回滚脚本已更新（列/约束/索引可逆）
+-- [ ] 生产执行前 mysqldump，并记录 RTO/RPO
+-- =====================================================================

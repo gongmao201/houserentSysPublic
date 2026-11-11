@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.ai.dao.HouseEmbeddingDao">
+
+    <resultMap id="HouseEmbeddingMap" type="com.wt.hrentSystem.ai.entity.HouseEmbedding">
+        <result property="houseId" column="house_id" jdbcType="VARCHAR"/>
+        <result property="model" column="model" jdbcType="VARCHAR"/>
+        <result property="dim" column="dim" jdbcType="INTEGER"/>
+        <result property="vec" column="vec" jdbcType="VARBINARY"/>
+        <result property="contentHash" column="content_hash" jdbcType="CHAR"/>
+        <result property="updatedAt" column="updated_at" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="embeddingCols">house_id, model, dim, vec, content_hash, updated_at</sql>
+
+    <select id="getByHouseId" resultMap="HouseEmbeddingMap">
+        select <include refid="embeddingCols"/>
+        from house_embedding
+        where house_id = #{houseId}
+    </select>
+
+    <insert id="upsert">
+        insert into house_embedding (<include refid="embeddingCols"/>)
+        values (#{houseId}, #{model}, #{dim}, #{vec}, #{contentHash}, #{updatedAt})
+        on duplicate key update
+            model        = values(model),
+            dim          = values(dim),
+            vec          = values(vec),
+            content_hash = values(content_hash),
+            updated_at   = current_timestamp
+    </insert>
+
+    <delete id="deleteByHouseId">
+        delete from house_embedding where house_id = #{houseId}
+    </delete>
+
+</mapper>

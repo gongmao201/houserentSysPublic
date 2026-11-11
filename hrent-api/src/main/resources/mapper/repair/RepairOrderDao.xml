@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.repair.dao.RepairOrderDao">
+
+    <resultMap id="RepairOrderMap" type="com.wt.hrentSystem.repair.entity.RepairOrder">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="houseId" column="house_id" jdbcType="VARCHAR"/>
+        <result property="leaseId" column="lease_id" jdbcType="VARCHAR"/>
+        <result property="tenantId" column="tenant_id" jdbcType="VARCHAR"/>
+        <result property="landlordId" column="landlord_id" jdbcType="VARCHAR"/>
+        <result property="type" column="type" jdbcType="VARCHAR"/>
+        <result property="description" column="description" jdbcType="VARCHAR"/>
+        <result property="expectTime" column="expect_time" jdbcType="TIMESTAMP"/>
+        <result property="status" column="status" jdbcType="VARCHAR"/>
+        <result property="acceptedBy" column="accepted_by" jdbcType="VARCHAR"/>
+        <result property="acceptedAt" column="accepted_at" jdbcType="TIMESTAMP"/>
+        <result property="arrivedAt" column="arrived_at" jdbcType="TIMESTAMP"/>
+        <result property="completedAt" column="completed_at" jdbcType="TIMESTAMP"/>
+        <result property="confirmedAt" column="confirmed_at" jdbcType="TIMESTAMP"/>
+        <result property="cancelReason" column="cancel_reason" jdbcType="VARCHAR"/>
+        <result property="tenantScore" column="tenant_score" jdbcType="TINYINT"/>
+        <result property="tenantComment" column="tenant_comment" jdbcType="VARCHAR"/>
+        <result property="version" column="version" jdbcType="INTEGER"/>
+        <result property="idemKey" column="idem_key" jdbcType="VARCHAR"/>
+        <result property="createDate" column="create_time" jdbcType="TIMESTAMP"/>
+        <result property="updateDate" column="update_time" jdbcType="TIMESTAMP"/>
+        <result property="delFlag" column="del_flag" jdbcType="INTEGER"/>
+    </resultMap>
+
+    <sql id="repairOrderCols">
+        id, house_id, lease_id, tenant_id, landlord_id, type, description, expect_time,
+        status, accepted_by, accepted_at, arrived_at, completed_at, confirmed_at,
+        cancel_reason, tenant_score, tenant_comment, version, idem_key,
+        create_time, update_time, del_flag
+    </sql>
+
+    <select id="get" resultMap="RepairOrderMap">
+        select <include refid="repairOrderCols"/>
+        from repair_order
+        where id = #{id} and del_flag = 0
+    </select>
+
+    <select id="getByEntity" resultMap="RepairOrderMap">
+        select <include refid="repairOrderCols"/>
+        from repair_order
+        <where>
+            del_flag = 0
+            <if test="id != null and id != ''">and id = #{id}</if>
+            <if test="houseId != null and houseId != ''">and house_id = #{houseId}</if>
+            <if test="leaseId != null and leaseId != ''">and lease_id = #{leaseId}</if>
+            <if test="tenantId != null and tenantId != ''">and tenant_id = #{tenantId}</if>
+            <if test="landlordId != null and landlordId != ''">and landlord_id = #{landlordId}</if>
+            <if test="status != null and status != ''">and status = #{status}</if>
+            <if test="idemKey != null and idemKey != ''">and idem_key = #{idemKey}</if>
+        </where>
+        order by create_time desc
+        limit 1
+    </select>
+
+    <select id="findList" resultMap="RepairOrderMap">
+        select <include refid="repairOrderCols"/>
+        from repair_order
+        <where>
+            del_flag = 0
+            <if test="id != null and id != ''">and id = #{id}</if>
+            <if test="houseId != null and houseId != ''">and house_id = #{houseId}</if>
+            <if test="leaseId != null and leaseId != ''">and lease_id = #{leaseId}</if>
+            <if test="tenantId != null and tenantId != ''">and tenant_id = #{tenantId}</if>
+            <if test="landlordId != null and landlordId != ''">and landlord_id = #{landlordId}</if>
+            <if test="status != null and status != ''">and status = #{status}</if>
+            <if test="type != null and type != ''">and type = #{type}</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <select id="findAllList" resultMap="RepairOrderMap">
+        select <include refid="repairOrderCols"/>
+        from repair_order
+        where del_flag = 0
+        order by create_time desc
+    </select>
+
+    <insert id="insert">
+        insert into repair_order (<include refid="repairOrderCols"/>)
+        values (#{id}, #{houseId}, #{leaseId}, #{tenantId}, #{landlordId}, #{type},
+                #{description}, #{expectTime}, #{status}, #{acceptedBy}, #{acceptedAt},
+                #{arrivedAt}, #{completedAt}, #{confirmedAt}, #{cancelReason},
+                #{tenantScore}, #{tenantComment}, #{version}, #{idemKey},
+                #{createDate}, #{updateDate}, #{delFlag})
+    </insert>
+
+    <update id="update">
+        update repair_order
+        <set>
+            <if test="houseId != null and houseId != ''">house_id = #{houseId},</if>
+            <if test="leaseId != null and leaseId != ''">lease_id = #{leaseId},</if>
+            <if test="tenantId != null and tenantId != ''">tenant_id = #{tenantId},</if>
+            <if test="landlordId != null and landlordId != ''">landlord_id = #{landlordId},</if>
+            <if test="type != null and type != ''">type = #{type},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="expectTime != null">expect_time = #{expectTime},</if>
+            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="acceptedBy != null and acceptedBy != ''">accepted_by = #{acceptedBy},</if>
+            <if test="acceptedAt != null">accepted_at = #{acceptedAt},</if>
+            <if test="arrivedAt != null">arrived_at = #{arrivedAt},</if>
+            <if test="completedAt != null">completed_at = #{completedAt},</if>
+            <if test="confirmedAt != null">confirmed_at = #{confirmedAt},</if>
+            <if test="cancelReason != null">cancel_reason = #{cancelReason},</if>
+            <if test="tenantScore != null">tenant_score = #{tenantScore},</if>
+            <if test="tenantComment != null">tenant_comment = #{tenantComment},</if>
+            <if test="version != null">version = #{version},</if>
+            <if test="idemKey != null and idemKey != ''">idem_key = #{idemKey},</if>
+            <if test="updateDate != null">update_time = #{updateDate},</if>
+            <if test="delFlag != null">del_flag = #{delFlag},</if>
+        </set>
+        where id = #{id}
+    </update>
+
+    <update id="deleteById">
+        update repair_order set del_flag = 1 where id = #{id}
+    </update>
+
+    <update id="delete">
+        update repair_order set del_flag = 1 where id = #{id}
+    </update>
+
+    <select id="findByIdemKey" resultMap="RepairOrderMap">
+        select <include refid="repairOrderCols"/>
+        from repair_order
+        where idem_key = #{idemKey} and del_flag = 0
+        limit 1
+    </select>
+
+    <update id="updateStatusWithVersion">
+        update repair_order
+        set status = #{status},
+            accepted_by = #{acceptedBy},
+            version = version + 1,
+            update_time = now()
+        where id = #{id} and version = #{version} and del_flag = 0
+    </update>
+
+</mapper>

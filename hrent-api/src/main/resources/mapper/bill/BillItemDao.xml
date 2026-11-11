@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.wt.hrentSystem.bill.dao.BillItemDao">
+
+    <resultMap id="BillItemMap" type="com.wt.hrentSystem.bill.entity.BillItem">
+        <result property="id" column="id" jdbcType="VARCHAR"/>
+        <result property="rentId" column="rent_id" jdbcType="VARCHAR"/>
+        <result property="itemType" column="item_type" jdbcType="VARCHAR"/>
+        <result property="amountFen" column="amount_fen" jdbcType="BIGINT"/>
+        <result property="remark" column="remark" jdbcType="VARCHAR"/>
+        <result property="sort" column="sort" jdbcType="INTEGER"/>
+        <result property="createTime" column="create_time" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="billItemCols">id, rent_id, item_type, amount_fen, remark, sort, create_time</sql>
+
+    <insert id="insert">
+        insert into bill_item (<include refid="billItemCols"/>)
+        values (#{id}, #{rentId}, #{itemType}, #{amountFen}, #{remark}, #{sort}, #{createTime})
+    </insert>
+
+    <insert id="batchInsert">
+        insert into bill_item (<include refid="billItemCols"/>)
+        values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.id}, #{item.rentId}, #{item.itemType}, #{item.amountFen},
+             #{item.remark}, #{item.sort}, #{item.createTime})
+        </foreach>
+    </insert>
+
+    <select id="findByRentId" resultMap="BillItemMap">
+        select <include refid="billItemCols"/>
+        from bill_item
+        where rent_id = #{rentId}
+        order by sort, create_time
+    </select>
+
+    <delete id="deleteByRentId">
+        delete from bill_item where rent_id = #{rentId}
+    </delete>
+
+</mapper>
