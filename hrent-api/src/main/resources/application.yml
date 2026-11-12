@@ -24,6 +24,17 @@ spring:
       max-file-size: 5MB
       max-request-size: 6MB
 
+  # Redis：JWT 吊销名单等增强能力。连不上不会阻塞启动，
+  # RedisService 会熔断降级（30s 窗口），业务按无缓存逻辑继续跑。
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:0}
+    # 连接/读超时压短，避免 Redis 故障时拖慢接口
+    timeout: 2s
+    connect-timeout: 2s
+
   # Flyway：V1–V6 顺序执行；老库非空时按 baseline 处理
   # baseline-version=0：空库/干净老库都从 V1 开始（V1 全是 IF NOT EXISTS）
   # 已手动跑过 V6 的库改成 6；半迁移库禁止自动，先恢复或回滚
@@ -76,11 +87,31 @@ file:
   picLocal: ./static/images
   visitLocal: localhost:8888/hrent/images
 
-#JWT令牌配置
+#JWT令牌配置（TOKEN_SECRET 优先，向后兼容旧变量 JWT_SECRET）
 token:
-  secret: ${JWT_SECRET:}
+  secret: ${TOKEN_SECRET:${JWT_SECRET:}}
   expire-days: 7
 
 #微信小程序配置（未配置时微信登录接口返回明确错误，不会伪造登录）
+#必须带空默认值：${WECHAT_APP_ID} 在环境变量缺失时会让 Spring 启动直接失败
 wechat:
-  app-id: ${WECHAT_APP_ID}
+  app-id: ${WECHAT_APP_ID:}
+  app-secret: ${WECHAT_APP_SECRET:}
+
+#OpenAPI 3（springdoc）：全量 spec 出口
+#  /hrent/v3/api-docs         JSON
+#  /hrent/v3/api-docs.yaml    YAML
+#  /hrent/swagger-ui.html     可视化调试
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  packages-to-scan: com.wt.hrentSystem
+  paths-to-match: /**
+
+
