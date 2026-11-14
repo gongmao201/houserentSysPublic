@@ -105,6 +105,18 @@ token:
   legacy-secret: ${TOKEN_LEGACY_SECRET:}
   legacy-grace-days: ${TOKEN_LEGACY_GRACE_DAYS:7}
 
+#账单定时任务（Asia/Shanghai）
+#  月结：每月 1 日 00:05 为生效租约生成当月账单（唯一键防重）
+#  逾期：每天 00:10 扫描到期未缴账单，落 OVERDUE + 给租客发站内信（只发一次）
+bill:
+  monthly:
+    enabled: ${BILL_MONTHLY_ENABLED:true}
+    cron: "${BILL_MONTHLY_CRON:0 5 0 1 * ?}"
+  overdue:
+    enabled: ${BILL_OVERDUE_ENABLED:true}
+    cron: "${BILL_OVERDUE_CRON:0 10 0 * * ?}"
+    limit: ${BILL_OVERDUE_LIMIT:200}
+
 #微信小程序配置（未配置时微信登录接口返回明确错误，不会伪造登录）
 #必须带空默认值：${WECHAT_APP_ID} 在环境变量缺失时会让 Spring 启动直接失败
 wechat:

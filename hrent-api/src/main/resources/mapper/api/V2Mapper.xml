@@ -143,6 +143,7 @@
         <include refid="billStatusExpr"/> AS billStatus,
         r.channel AS channel, r.voucher_pic AS voucherPic,
         r.payable_time AS payableDate, r.confirm_at AS confirmAt,
+        r.overdue_notified_at AS overdueNotifiedAt,
         r.tenant_id AS tenantId, r.version AS version,
         h.create_by AS landlordId, h.address AS houseTitle
     </sql>
@@ -223,11 +224,59 @@
     <insert id="insertBill">
         INSERT INTO hrent_rent
             (id, renting_id, period, amount_fen, paid_fen, bill_status, state,
-             payable_time, tenant_id, create_time, del_flag, version)
+             payable_time, tenant_id, create_by, create_time, del_flag, version)
         VALUES
             (#{id}, #{rentingId}, #{period}, #{amountFen}, 0, 'UNPAID', 1,
-             STR_TO_DATE(#{payableDate}, '%Y-%m-%d'), #{tenantId}, NOW(), 0, 0)
+             STR_TO_DATE(#{payableDate}, '%Y-%m-%d'), #{tenantId}, #{operatorId}, NOW(), 0, 0)
     </insert>
+
+    <select id="findRentingsForMonthlyBill" resultType="map">
+        SELECT g.id AS rentingId, g.tenant_id AS tenantId, g.money_fen AS moneyFen,
+               g.start_date AS startDate, g.end_date AS endDate,
+               h.create_by AS landlordId, h.address AS houseTitle
+        FROM hrent_house_renting g
+        LEFT JOIN hrent_house_resource h ON h.id = g.house_id
+        WHERE g.del_flag = 0
+          AND g.status = 0
+          AND COALESCE(g.money_fen, 0) &gt; 0
+          AND (g.start_date IS NULL OR g.start_date &lt;= STR_TO_DATE(#{periodEnd}, '%Y-%m-%d'))
+          AND (g.end_date IS NULL OR g.end_date &gt;= STR_TO_DATE(#{periodStart}, '%Y-%m-%d'))
+          AND NOT EXISTS (
+              SELECT 1 FROM hrent_rent r
+              WHERE r.renting_id = g.id AND r.period = #{period} AND r.del_flag = 0
+          )
+        ORDER BY g.id
+    </select>
+
+    <select id="findOverdueBillCandidates" resultType="map">
+        SELECT r.id AS id, r.tenant_id AS tenantId, r.period AS period,
+               r.amount_fen AS amountFen, r.payable_time AS payableDate,
+               h.address AS houseTitle
+        FROM hrent_rent r
+        LEFT JOIN hrent_house_renting g ON g.id = r.renting_id
+        LEFT JOIN hrent_house_resource h ON h.id = g.house_id
+        WHERE r.del_flag = 0
+          AND r.bill_status IN ('UNPAID','OVERDUE')
+          AND r.payable_time IS NOT NULL AND r.payable_time &lt; NOW()
+          AND r.overdue_notified_at IS NULL
+        ORDER BY r.payable_time ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markOverdueNotified">
+        UPDATE hrent_rent
+        SET bill_status = 'OVERDUE', overdue_notified_at = NOW(),
+            version = version + 1, update_time = NOW()
+        WHERE id = #{id} AND overdue_notified_at IS NULL
+          AND bill_status IN ('UNPAID','OVERDUE') AND del_flag = 0
+    </update>
+
+    <update id="addBillItemAmount">
+        UPDATE hrent_rent
+        SET amount_fen = amount_fen + #{amountFen}, version = version + 1, update_time = NOW()
+        WHERE id = #{id} AND version = #{version}
+          AND bill_status IN ('UNPAID','OVERDUE') AND del_flag = 0
+    </update>
 
     <update id="updateBillPaid">
         UPDATE hrent_rent

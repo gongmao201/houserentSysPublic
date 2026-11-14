@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.YearMonth;
@@ -22,6 +23,7 @@ import java.util.UUID;
 /**
  * 账单 v2（docs/13 §4.5）。本期不含在线支付：租客线下转账后标记 + 房东确认到账。
  * 金额一律 long「分」；生成时同步写一条 RENT 明细，保证 SUM(items) == amount_fen。
+ * W7 增加：按月批量生成（定时任务调用）与逾期扫描（写 sys_message 站内信）。
  */
 @Service
 public class BillService {
@@ -34,33 +36,127 @@ public class BillService {
     private BillItemDao billItemDao;
     @Resource
     private V2Context v2Context;
+    @Resource
+    private BillNoticeService billNoticeService;
 
     public Map<String, Object> generate(Map<String, Object> body, User user) {
         Req.body(body);
         String rentingId = Req.str(body, "rentingId", true, 64);
         String period = Req.str(body, "period", true, 7);
-        try {
-            YearMonth.parse(period);
-        } catch (DateTimeParseException e) {
-            throw ApiException.bad("period 必须是 YYYY-MM");
-        }
-        if (v2Mapper.findBillIdByRentingPeriod(rentingId, period) != null) {
-            throw ApiException.conflict("该租约该账期已生成账单");
-        }
+        YearMonth ym = parsePeriod(period);
         Map<String, Object> renting = v2Mapper.getRentingBrief(rentingId);
         if (renting == null) {
             throw ApiException.notFound("租约不存在");
         }
         v2Context.assertOwner(user, Rows.str(renting.get("landlordId")));
+        return createBill(renting, ym.toString(), user.getId());
+    }
+
+    /**
+     * 按月批量生成：只处理「当前生效 + 覆盖该账期 + 该账期未建账单」的租约。
+     * 幂等由 uk_renting_period 唯一键兜底；并发/重复执行只记 skipped，不报错。
+     */
+    public Map<String, Object> monthlyGenerate(YearMonth period, String operatorId) {
+        String p = period.toString();
+        String start = period.atDay(1).toString();
+        String end = period.atEndOfMonth().toString();
+        List<Map<String, Object>> rentings = v2Mapper.findRentingsForMonthlyBill(p, start, end);
+        int generated = 0;
+        int skipped = 0;
+        int failed = 0;
+        List<String> failures = new ArrayList<>();
+        if (rentings != null) {
+            for (Map<String, Object> renting : rentings) {
+                try {
+                    createBill(renting, p, operatorId);
+                    generated++;
+                } catch (DuplicateKeyException e) {
+                    skipped++;
+                } catch (ApiException e) {
+                    if (e.getCode() == ApiCodes.CONFLICT) {
+                        //并发/重复执行：账期已被别人建过，跳过即可
+                        skipped++;
+                    } else {
+                        failed++;
+                        String rentingId = Rows.str(renting.get("rentingId"));
+                        if (failures.size() < 5) {
+                            failures.add(rentingId + ": " + e.getMessage());
+                        }
+                        log.error("按月生成账单失败 rentingId=" + rentingId + " period=" + p, e);
+                    }
+                } catch (Exception e) {
+                    failed++;
+                    String rentingId = Rows.str(renting.get("rentingId"));
+                    if (failures.size() < 5) {
+                        failures.add(rentingId + ": " + e.getMessage());
+                    }
+                    log.error("按月生成账单失败 rentingId=" + rentingId + " period=" + p, e);
+                }
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("period", p);
+        result.put("candidates", rentings == null ? 0 : rentings.size());
+        result.put("generated", generated);
+        result.put("skipped", skipped);
+        result.put("failed", failed);
+        result.put("failures", failures);
+        return result;
+    }
+
+    /**逾期扫描：逐条落 OVERDUE + 发站内信；mark 条件更新保证多实例只发一次 */
+    public Map<String, Object> scanOverdue(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        List<Map<String, Object>> candidates = v2Mapper.findOverdueBillCandidates(safeLimit);
+        int notified = 0;
+        int skipped = 0;
+        int failed = 0;
+        if (candidates != null) {
+            for (Map<String, Object> row : candidates) {
+                try {
+                    if (billNoticeService.notifyOverdue(row)) {
+                        notified++;
+                    } else {
+                        skipped++;
+                    }
+                } catch (Exception e) {
+                    failed++;
+                    log.error("逾期站内信发送失败 billId=" + Rows.str(row.get("id")), e);
+                }
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("candidates", candidates == null ? 0 : candidates.size());
+        result.put("notified", notified);
+        result.put("skipped", skipped);
+        result.put("failed", failed);
+        return result;
+    }
+
+    private YearMonth parsePeriod(String period) {
+        try {
+            return YearMonth.parse(period);
+        } catch (DateTimeParseException e) {
+            throw ApiException.bad("period 必须是 YYYY-MM");
+        }
+    }
+
+    /**单条建账：重复账期 409；金额取租约月租，同步写 RENT 明细 */
+    private Map<String, Object> createBill(Map<String, Object> renting, String period, String operatorId) {
+        String rentingId = Rows.str(renting.get("rentingId"));
+        if (v2Mapper.findBillIdByRentingPeriod(rentingId, period) != null) {
+            throw ApiException.conflict("该租约该账期已生成账单");
+        }
         Long moneyFen = Rows.lng(renting.get("moneyFen"));
         if (moneyFen == null || moneyFen <= 0) {
             throw ApiException.unprocessable("租约未回填月租(分)，无法生成账单");
         }
         String tenantId = Rows.str(renting.get("tenantId"));
         String billId = UUID.randomUUID().toString().replace("-", "");
+        String payableDate = period + "-05";
         try {
             v2Mapper.insertBill(billId, rentingId, period, moneyFen,
-                    period + "-05", tenantId);
+                    payableDate, tenantId, operatorId);
         } catch (DuplicateKeyException e) {
             throw ApiException.conflict("该租约该账期已生成账单");
         }
@@ -76,10 +172,53 @@ public class BillService {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("billId", billId);
+        result.put("rentingId", rentingId);
         result.put("period", period);
         result.put("amountFen", moneyFen);
         result.put("status", "UNPAID");
-        result.put("payableDate", period + "-05");
+        result.put("payableDate", payableDate);
+        return result;
+    }
+
+    /**
+     * 追加费用明细（水/电/物业/其他），同步抬高应收。
+     * 只允许房东/管理员在 UNPAID/OVERDUE 阶段操作；金额与明细在同一事务内变更，保持 SUM==amount。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> addItem(String id, Map<String, Object> body, User user) {
+        Req.body(body);
+        String itemType = Req.oneOf(body, "itemType", true, "WATER", "ELECTRIC", "PROPERTY", "OTHER");
+        Long amountFen = Req.fen(body, "amountFen", true);
+        if (amountFen <= 0) {
+            throw ApiException.unprocessable("明细金额必须大于 0");
+        }
+        String remark = Req.str(body, "remark", false, 200);
+        Map<String, Object> row = require(id, user);
+        v2Context.assertOwner(user, Rows.str(row.get("landlordId")));
+        String status = Rows.str(row.get("billStatus"));
+        if (!"UNPAID".equals(status) && !"OVERDUE".equals(status)) {
+            throw ApiException.conflict("仅待缴/逾期的账单可追加明细（当前 " + status + "）");
+        }
+        int affected = v2Mapper.addBillItemAmount(id, amountFen, Rows.intOr(row.get("version"), 0));
+        if (affected == 0) {
+            throw ApiException.conflict("账单已被其他操作更新，请刷新后重试");
+        }
+        List<BillItem> existing = billItemDao.findByRentId(id);
+        BillItem item = new BillItem();
+        item.setId(UUID.randomUUID().toString().replace("-", ""));
+        item.setRentId(id);
+        item.setItemType(itemType);
+        item.setAmountFen(amountFen);
+        item.setRemark(remark);
+        item.setSort(existing == null ? 0 : existing.size());
+        item.setCreateTime(new Date());
+        billItemDao.insert(item);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("billId", id);
+        result.put("itemType", itemType);
+        result.put("amountFen", amountFen);
+        result.put("totalAmountFen", Rows.longOr(row.get("amountFen"), 0L) + amountFen);
         return result;
     }
 
@@ -202,6 +341,7 @@ public class BillService {
         Map<String, Object> vo = Rows.copy(row);
         vo.put("payableDate", Rows.day(row.get("payableDate")));
         vo.put("confirmAt", Rows.iso(row.get("confirmAt")));
+        vo.put("overdueNotifiedAt", Rows.iso(row.get("overdueNotifiedAt")));
         vo.put("amountFen", Rows.longOr(row.get("amountFen"), 0L));
         vo.put("paidFen", Rows.longOr(row.get("paidFen"), 0L));
         return vo;

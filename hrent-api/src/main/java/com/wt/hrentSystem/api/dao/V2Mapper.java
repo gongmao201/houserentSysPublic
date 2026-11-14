@@ -97,7 +97,24 @@ public interface V2Mapper {
                    @Param("period") String period,
                    @Param("amountFen") long amountFen,
                    @Param("payableDate") String payableDate,
-                   @Param("tenantId") String tenantId);
+                   @Param("tenantId") String tenantId,
+                   @Param("operatorId") String operatorId);
+
+    /**按月自动生成：当前生效、未结束、且该账期还没账单的租约 */
+    List<Map<String, Object>> findRentingsForMonthlyBill(@Param("period") String period,
+                                                        @Param("periodStart") String periodStart,
+                                                        @Param("periodEnd") String periodEnd);
+
+    /**逾期候选：已到应缴日、未结清、尚未发过逾期通知 */
+    List<Map<String, Object>> findOverdueBillCandidates(@Param("limit") int limit);
+
+    /**逾期发送幂等：只有 overdue_notified_at 为空时才能更新成功 */
+    int markOverdueNotified(@Param("id") String id);
+
+    /**追加费用明细时同步抬高应收，先条件更新防并发/已缴账单被改 */
+    int addBillItemAmount(@Param("id") String id,
+                          @Param("amountFen") long amountFen,
+                          @Param("version") int version);
 
     int updateBillPaid(@Param("id") String id,
                        @Param("paidFen") long paidFen,
