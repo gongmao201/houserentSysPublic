@@ -41,7 +41,7 @@
     <!--查询单个-->
     <select id="get" resultMap="SysMessageMap">
         select <include refid="messageCols"></include>
-        from house_rent.sys_message a
+        from sys_message a
         where id = #{id}
         and del_flag = 0
     </select>
@@ -49,7 +49,7 @@
 <!--    根据实体类条件查询单条数据-->
     <select id="getByEntity" resultMap="SysMessageMap">
         select <include refid="messageCols"></include>
-        from house_rent.sys_message a
+        from sys_message a
         where a.del_flag = 0
         <if test="id != null and id != ''">
             and id = #{id}
@@ -89,7 +89,7 @@
     <!--查询指定行数据-->
     <select id="findList" resultMap="SysMessageMap">
         select <include refid="messageCols"></include>
-        from house_rent.sys_message a
+        from sys_message a
         where del_flag = 0
         <if test="id != null and id != ''">
             and id = #{id}
@@ -154,7 +154,7 @@
     <!--查询某个人的消息列表-->
     <select id="findPersonalMessagePage" resultMap="SysMessageMap">
         select <include refid="messageCols"></include>
-        from house_rent.sys_message a
+        from sys_message a
         where a.del_flag = 0
             <if test="state != null">
                 and state = #{state}
@@ -166,7 +166,7 @@
 
     <!--新增所有列-->
     <insert id="insert" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.sys_message(id,
+        insert into sys_message(id,
                                         receiver_type,
                                         receiver_id,
                                         message_name,
@@ -187,7 +187,7 @@
 
     <!--通过主键修改数据-->
     <update id="update">
-        update house_rent.sys_message
+        update sys_message
         <set>
             <if test="receiverType != null">
                 receiver_type = #{receiverType},
@@ -231,7 +231,7 @@
 
     <!--通过主键删除-->
     <delete id="delete">
-        update house_rent.sys_message
+        update sys_message
         <set>
             del_flag = 1,
         </set>

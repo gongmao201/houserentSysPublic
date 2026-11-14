@@ -46,7 +46,7 @@
     <!--查询单个-->
     <select id="get" resultMap="TagMap">
         select <include refid="tagCols"></include>
-        from house_rent.hrent_tag
+        from hrent_tag
         where id = #{id}
     </select>
 
@@ -73,7 +73,7 @@
     <select id="findList" resultMap="TagMap">
         select
         <include refid="tagCols"></include>
-        from house_rent.hrent_tag
+        from hrent_tag
         <where>
             <if test="id != null and id != ''">
                 and id = #{id}
@@ -110,7 +110,7 @@
 
     <!--新增所有列-->
     <insert id="insert" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.hrent_tag(id,
+        insert into hrent_tag(id,
                                          name,
                                          rgb,
                                          state,
@@ -125,7 +125,7 @@
     </insert>
 
     <insert id="addHouseTags" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.hrent_tag_and_house(id,
+        insert into hrent_tag_and_house(id,
                                                    house_id,
                                                    tag_id,
                                                    create_by,
@@ -139,7 +139,7 @@
 
     <!--通过主键修改数据-->
     <update id="update">
-        update house_rent.hrent_tag
+        update hrent_tag
         <set>
             <if test="name != null and name != ''">
                 name = #{name},
@@ -174,7 +174,7 @@
 
     <!--通过主键删除-->
     <update id="delete">
-        update house_rent.hrent_tag
+        update hrent_tag
         <set>
             del_flag = 1
         </set>
@@ -188,7 +188,7 @@
 
     <!--删除房源的所有标签-->
     <delete id="deleteByHouseId">
-        delete from house_rent.hrent_tag_and_house
+        delete from hrent_tag_and_house
         where house_id = #{houseId}
     </delete>
 

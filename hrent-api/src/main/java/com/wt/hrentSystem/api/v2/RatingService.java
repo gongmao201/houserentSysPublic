@@ -40,11 +40,17 @@ public class RatingService {
     private static final BigDecimal PRIOR_C = new BigDecimal("3");
     private static final BigDecimal PRIOR_M = new BigDecimal("4.0");
 
+    /**上架审核通过线：8 项加权 ≥ 3.00 且 3 个核心项（照片真实/地址可核验/消防）全通过 */
+    private static final BigDecimal AUDIT_PASS_SCORE = new BigDecimal("3.00");
+
     private static final String[] AUDIT_KEYS = {
             "photoReal", "addressVerified", "facilityMatch", "priceReasonable",
             "contractUploaded", "safetyChecked", "depositRuleClear", "noComplaint"
     };
     private static final double[] AUDIT_WEIGHTS = {0.20, 0.20, 0.15, 0.15, 0.10, 0.10, 0.05, 0.05};
+
+    /**核心项：任一不通过即不予以上架，避免“权重凑分”绕过照片/地址/消防 */
+    private static final String[] AUDIT_CORE_KEYS = {"photoReal", "addressVerified", "safetyChecked"};
 
     @Resource
     private ReviewDao reviewDao;
@@ -222,13 +228,42 @@ public class RatingService {
         if (items.isEmpty()) {
             throw ApiException.bad("缺少核验项 items");
         }
+        //8 项必须逐项显式给出，缺项不允许默认 false —— 否则“漏勾”会被当成“不合格”静默计分
+        List<String> missing = new ArrayList<>();
+        for (String key : AUDIT_KEYS) {
+            if (!items.containsKey(key) || !(items.get(key) instanceof Boolean)) {
+                missing.add(key);
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw ApiException.bad("8 项核验必须全部给出布尔值，缺少：" + String.join("/", missing));
+        }
+
+        Map<String, Object> house = v2Mapper.getHouseForAudit(houseId);
+        if (house == null) {
+            throw ApiException.notFound("房源不存在");
+        }
+
         BigDecimal score = BigDecimal.ZERO;
+        int hit = 0;
+        List<String> failed = new ArrayList<>();
         for (int i = 0; i < AUDIT_KEYS.length; i++) {
             if (Req.bool(items, AUDIT_KEYS[i])) {
                 score = score.add(BigDecimal.valueOf(AUDIT_WEIGHTS[i] * 5));
+                hit++;
+            } else {
+                failed.add(AUDIT_KEYS[i]);
             }
         }
         score = score.setScale(2, RoundingMode.HALF_UP);
+        boolean corePassed = true;
+        for (String key : AUDIT_CORE_KEYS) {
+            if (!Req.bool(items, key)) {
+                corePassed = false;
+                break;
+            }
+        }
+        boolean passed = corePassed && score.compareTo(AUDIT_PASS_SCORE) >= 0;
 
         HouseAudit audit = new HouseAudit();
         audit.setId(UUID.randomUUID().toString().replace("-", ""));
@@ -243,14 +278,66 @@ public class RatingService {
         audit.setDepositRuleClear(flag(items, "depositRuleClear"));
         audit.setNoComplaint(flag(items, "noComplaint"));
         audit.setScore(score);
-        audit.setConclusion("8 项加权核验，命中即计权");
+        audit.setConclusion(passed
+                ? "核验通过（" + hit + "/8 项，得分 " + score + "），允许上架"
+                : "核验未通过（" + hit + "/8 项，得分 " + score + "），房源保持审核中");
         audit.setCreateTime(new Date());
         houseAuditDao.insert(audit);
-        refreshSummary("HOUSE", houseId);
+
+        //通过才置 state=1；未通过保持 0（UC-01：核验不通过保持审核中）
+        int state = Rows.intOr(house.get("state"), 0);
+        if (passed) {
+            v2Mapper.updateHouseState(houseId, 1);
+            state = 1;
+        }
+        RatingSummary summary = refreshSummary("HOUSE", houseId);
 
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("auditId", audit.getId());
         result.put("houseId", houseId);
         result.put("officialScore", score);
+        result.put("displayScore", summary.getDisplayScore());
+        result.put("passed", passed);
+        result.put("houseState", state);
+        result.put("hitCount", hit);
+        result.put("failedItems", failed);
+        result.put("conclusion", audit.getConclusion());
+        return result;
+    }
+
+    /**核验结果回读：房东/管理员可看最近一次 8 项明细，前端评分页直接渲染 */
+    public Map<String, Object> auditDetail(String houseId, User user) {
+        Map<String, Object> house = v2Mapper.getHouseForAudit(houseId);
+        if (house == null) {
+            throw ApiException.notFound("房源不存在");
+        }
+        if (!v2Context.isAdmin(user)) {
+            v2Context.assertOwner(user, Rows.str(house.get("landlordId")));
+        }
+        HouseAudit latest = houseAuditDao.findLatestByHouseId(houseId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("houseId", houseId);
+        result.put("houseState", Rows.intOr(house.get("state"), 0));
+        result.put("audited", latest != null);
+        if (latest == null) {
+            result.put("items", Collections.emptyMap());
+            result.put("officialScore", null);
+            result.put("comment", "尚未核验，房源处于审核中");
+            return result;
+        }
+        Map<String, Object> items = new LinkedHashMap<>();
+        items.put("photoReal", latest.getPhotoReal() != null && latest.getPhotoReal() == 1);
+        items.put("addressVerified", latest.getAddressVerified() != null && latest.getAddressVerified() == 1);
+        items.put("facilityMatch", latest.getFacilityMatch() != null && latest.getFacilityMatch() == 1);
+        items.put("priceReasonable", latest.getPriceReasonable() != null && latest.getPriceReasonable() == 1);
+        items.put("contractUploaded", latest.getContractUploaded() != null && latest.getContractUploaded() == 1);
+        items.put("safetyChecked", latest.getSafetyChecked() != null && latest.getSafetyChecked() == 1);
+        items.put("depositRuleClear", latest.getDepositRuleClear() != null && latest.getDepositRuleClear() == 1);
+        items.put("noComplaint", latest.getNoComplaint() != null && latest.getNoComplaint() == 1);
+        result.put("items", items);
+        result.put("officialScore", latest.getScore());
+        result.put("comment", latest.getConclusion());
+        result.put("auditedAt", V2Time.iso(latest.getCreateTime()));
         return result;
     }
 
@@ -273,12 +360,7 @@ public class RatingService {
                 officialScore = latest.getScore();
             }
         }
-        BigDecimal bayesian = sum.add(PRIOR_C.multiply(PRIOR_M))
-                .divide(PRIOR_C.add(BigDecimal.valueOf(n)), 4, RoundingMode.HALF_UP);
-        BigDecimal officialPart = officialScore == null ? PRIOR_M : officialScore;
-        BigDecimal display = officialPart.multiply(new BigDecimal("0.4"))
-                .add(bayesian.multiply(new BigDecimal("0.6")))
-                .setScale(1, RoundingMode.HALF_UP);
+        BigDecimal display = computeDisplayScore(officialScore, sum, n);
 
         RatingSummary s = new RatingSummary();
         s.setTargetType(targetType);
@@ -292,8 +374,23 @@ public class RatingService {
         return s;
     }
 
-    private String ownerOf(Review review) {
-        return "LANDLORD".equals(review.getTargetType())
+    /**
+     * 展示分（docs/14 FR-RATE-05）：display = 0.4×official + 0.6×贝叶斯平滑用户分；
+     * official 为空时回落为纯贝叶斯分（权重 1.0）。冷启动 n=0 时结果恒为 4.0。
+     * 抽成静态方法是为了让公式可单测，不依赖 Spring 与 DB。
+     */
+    public static BigDecimal computeDisplayScore(BigDecimal officialScore, BigDecimal scoreSum, int reviewCount) {
+        int n = Math.max(reviewCount, 0);
+        BigDecimal sum = scoreSum == null ? BigDecimal.ZERO : scoreSum;
+        BigDecimal bayesian = sum.add(PRIOR_C.multiply(PRIOR_M))
+                .divide(PRIOR_C.add(BigDecimal.valueOf(n)), 4, RoundingMode.HALF_UP);
+        BigDecimal officialPart = officialScore == null ? PRIOR_M : officialScore;
+        return officialPart.multiply(new BigDecimal("0.4"))
+                .add(bayesian.multiply(new BigDecimal("0.6")))
+                .setScale(1, RoundingMode.HALF_UP);
+    }
+
+    private String ownerOf(Review review) {        return "LANDLORD".equals(review.getTargetType())
                 ? review.getTargetId()
                 : v2Mapper.findLandlordIdByHouseId(review.getTargetId());
     }

@@ -6,7 +6,12 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     name: hrent
     hikari:
+      pool-name: hrent-pool
       auto-commit: true
+      #每建立一条物理连接就固定会话时区为 +08:00：
+      #不依赖 MySQL 服务器的 time_zone=SYSTEM，也不依赖操作系统时区，
+      #保证 DATETIME 读写与 Java 侧 Asia/Shanghai 一致。
+      connection-init-sql: "SET time_zone = '+08:00'"
       #空闲连接超时时长
       idle-timeout: 60000
       #连接超时时长
@@ -18,17 +23,33 @@ spring:
       #最大连接数量
       maximum-pool-size: 10
 
+  # 统一序列化时区，避免接口返回时间出现 8 小时偏移
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+
   # v2 上传：契约要求 ≤5MB，Spring Boot 默认 1MB 会在进入 Controller 前拦截
   servlet:
     multipart:
       max-file-size: 5MB
       max-request-size: 6MB
 
-  # Flyway：V1–V6 顺序执行；老库非空时按 baseline 处理
+  # Redis：JWT 吊销名单等增强能力。连不上不会阻塞启动，
+  # RedisService 会熔断降级（30s 窗口），业务按无缓存逻辑继续跑。
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    database: ${REDIS_DATABASE:0}
+    # 连接/读超时压短，避免 Redis 故障时拖慢接口
+    timeout: 2s
+    connect-timeout: 2s
+
+  # Flyway：V1–V9 顺序执行；老库非空时按 baseline 处理
   # baseline-version=0：空库/干净老库都从 V1 开始（V1 全是 IF NOT EXISTS）
   # 已手动跑过 V6 的库改成 6；半迁移库禁止自动，先恢复或回滚
   flyway:
-    enabled: true           # 已验证：干净老库 baseline 0，空库直接 V1–V7
+    enabled: true           # 已验证：干净老库 baseline 0，空库直接 V1–V9
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
@@ -60,7 +81,7 @@ logging:
           common: debug
           hrent: debug
 server:
-  port: 8888
+  port: ${HRENT_PORT:8888}
   servlet:
     context-path: /hrent
 
@@ -76,11 +97,69 @@ file:
   picLocal: ./static/images
   visitLocal: localhost:8888/hrent/images
 
-#JWT令牌配置
+#JWT令牌配置（TOKEN_SECRET 优先，向后兼容旧变量 JWT_SECRET）
+#双验期：老 token 用 LEGACY 密钥兜底验签，过期后仍可宽限 legacy-grace-days 天
 token:
-  secret: ${JWT_SECRET:}
+  secret: ${TOKEN_SECRET:${JWT_SECRET:}}
   expire-days: 7
+  legacy-secret: ${TOKEN_LEGACY_SECRET:}
+  legacy-grace-days: ${TOKEN_LEGACY_GRACE_DAYS:7}
 
 #微信小程序配置（未配置时微信登录接口返回明确错误，不会伪造登录）
+#必须带空默认值：${WECHAT_APP_ID} 在环境变量缺失时会让 Spring 启动直接失败
 wechat:
-  app-id: ${WECHAT_APP_ID}
+  app-id: ${WECHAT_APP_ID:}
+  app-secret: ${WECHAT_APP_SECRET:}
+
+#OpenAPI 3（springdoc）：全量 spec 出口
+#  /hrent/v3/api-docs         JSON
+#  /hrent/v3/api-docs.yaml    YAML
+#  /hrent/swagger-ui.html     可视化调试
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  packages-to-scan: com.wt.hrentSystem
+  paths-to-match: /**
+
+# =====================================================================
+# 监控（Actuator + Micrometer Prometheus）
+#   健康：GET /hrent/actuator/health          存活/就绪（liveness/readiness）
+#   指标：GET /hrent/actuator/prometheus      Prometheus 抓取口
+#   指标：GET /hrent/actuator/metrics         调试用，按名字查单项
+# 抓取与告警：deploy/prometheus/prometheus.yml、deploy/prometheus/alerts.yml
+# =====================================================================
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  # Redis 在本项目是可降级的增强能力（吊销名单/缓存），未部署 Redis 时业务照常跑，
+  # 不能让 /actuator/health 整体 DOWN（否则探活、K8s readiness、告警全部误报）。
+  health:
+    redis:
+      enabled: false
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: hrent-api
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
+
+

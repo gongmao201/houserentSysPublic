@@ -57,7 +57,7 @@
     <!--查询单个-->
     <select id="get" resultMap="HouseResourceMap">
         select <include refid="houseResourceCols"></include>
-        from house_rent.hrent_house_resource a
+        from hrent_house_resource a
         where id = #{id}
     </select>
 
@@ -66,7 +66,7 @@
     <select id="findList" resultMap="HouseResourceMap">
         select
         <include refid="houseResourceCols"></include>
-        from house_rent.hrent_house_resource a
+        from hrent_house_resource a
         <where>
             a.del_flag = 0
             <if test="id != null and id != ''">
@@ -138,7 +138,7 @@
     <select id="findHouseByConditionPage" resultMap="HouseResourceMap">
         select
         <include refid="houseResourceCols"></include>
-        from house_rent.hrent_house_resource a
+        from hrent_house_resource a
         <where>
             a.del_flag = 0
             <!--查询审核通过的房源-->
@@ -206,7 +206,7 @@
     <select id="findByRolePage" resultMap="HouseResourceMap">
         select
         <include refid="houseResourceCols"></include>
-        from house_rent.hrent_house_resource a
+        from hrent_house_resource a
         where   a.del_flag = 0
                 <if test="id != null and id != ''">
                     and a.id = #{id}
@@ -320,7 +320,7 @@
 
     <!--新增所有列-->
     <insert id="insert" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.hrent_house_resource(id,
+        insert into hrent_house_resource(id,
                                                     province,
                                                     city,
                                                     county,
@@ -349,7 +349,7 @@
 
     <!--通过主键修改数据-->
     <update id="update">
-        update house_rent.hrent_house_resource
+        update hrent_house_resource
         <set>
             <if test="province != null and province != ''">
                 province = #{province},
@@ -417,7 +417,7 @@
 
     <!--通过主键删除-->
     <update id="delete">
-        update house_rent.hrent_house_resource
+        update hrent_house_resource
         <set>
             del_flag = 1
         </set>
