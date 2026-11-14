@@ -15,21 +15,84 @@ import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * 报修 v2（docs/13 §4.4）。
- * 状态机 CREATED→ACCEPTED→ON_SITE→COMPLETED→ACCEPTED_BY_TENANT，CREATED→CANCELLED；
- * 非法跳转 409，状态流转用 version 乐观锁，重复提交用 Idempotency-Key + DB 唯一键双兜底。
+ * 报修 v2（docs/13 §4.4、docs/14 FR-REPAIR-01~06、docs/16 §6）。
+ *
+ * 状态机（V4 DDL 的 6 状态）：
+ *   CREATED → ACCEPTED → ON_SITE → COMPLETED → ACCEPTED_BY_TENANT
+ *   任意非终态 → CANCELLED；ACCEPTED_BY_TENANT / CANCELLED 为终态
+ * 约束：
+ *   1) 非法/重复跳转统一 409，并回传 allowedNext；
+ *   2) 每次流转用 version 乐观锁（status + version 双条件），抢单只有一个成功；
+ *   3) Idempotency-Key 24h 内重复提交返回同一单，且只能由同一租客复用。
  */
 @Service
 public class RepairService {
 
     private static final DateTimeFormatter SQL_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    private static final String CREATED = "CREATED";
+    private static final String ACCEPTED = "ACCEPTED";
+    private static final String ON_SITE = "ON_SITE";
+    private static final String COMPLETED = "COMPLETED";
+    private static final String ACCEPTED_BY_TENANT = "ACCEPTED_BY_TENANT";
+    private static final String CANCELLED = "CANCELLED";
+
+    /**状态机白名单：key=当前状态，value=允许到达的状态 */
+    private static final Map<String, Set<String>> TRANSITIONS;
+
+    /**动作 → 目标状态；具体是否允许由 TRANSITIONS 判定 */
+    private static final Map<String, String> ACTION_TARGET;
+
+    /**幂等键有效期（DDL 注释口径 24h） */
+    private static final long IDEM_TTL_MILLIS = 24L * 60L * 60L * 1000L;
+
+    static {
+        Map<String, Set<String>> map = new LinkedHashMap<>();
+        map.put(CREATED, new LinkedHashSet<>(Arrays.asList(ACCEPTED, CANCELLED)));
+        map.put(ACCEPTED, new LinkedHashSet<>(Arrays.asList(ON_SITE, CANCELLED)));
+        map.put(ON_SITE, new LinkedHashSet<>(Arrays.asList(COMPLETED, CANCELLED)));
+        map.put(COMPLETED, new LinkedHashSet<>(Arrays.asList(ACCEPTED_BY_TENANT, CANCELLED)));
+        map.put(ACCEPTED_BY_TENANT, Collections.emptySet());
+        map.put(CANCELLED, Collections.emptySet());
+        TRANSITIONS = Collections.unmodifiableMap(map);
+
+        Map<String, String> actions = new LinkedHashMap<>();
+        actions.put("accept", ACCEPTED);
+        actions.put("arrive", ON_SITE);
+        actions.put("complete", COMPLETED);
+        actions.put("confirm", ACCEPTED_BY_TENANT);
+        actions.put("cancel", CANCELLED);
+        ACTION_TARGET = Collections.unmodifiableMap(actions);
+    }
+
+    public static boolean canTransit(String from, String to) {
+        Set<String> allowed = TRANSITIONS.get(from);
+        return allowed != null && allowed.contains(to);
+    }
+
+    public static List<String> allowedNext(String from) {
+        List<String> names = new ArrayList<>();
+        Set<String> allowed = TRANSITIONS.get(from);
+        if (allowed != null) {
+            names.addAll(allowed);
+        }
+        return names;
+    }
+
+    public static boolean isTerminal(String status) {
+        return allowedNext(status).isEmpty();
+    }
 
     @Resource
     private RepairOrderDao repairOrderDao;
@@ -44,13 +107,11 @@ public class RepairService {
 
     public Map<String, Object> create(Map<String, Object> body, User user, String idemKey) {
         Req.body(body);
-        if (idemKey != null && idemKey.trim().length() > 64) {
-            throw ApiException.bad("Idempotency-Key 超长");
-        }
+        String key = normalizeIdemKey(idemKey);
         // 幂等：同一 key 直接返回首次结果，不产生第二条工单
-        RepairOrder first = idemKey == null ? null : repairOrderDao.findByIdemKey(idemKey);
+        RepairOrder first = key == null ? null : repairOrderDao.findByIdemKey(key);
         if (first != null) {
-            return createdResult(first);
+            return reuseOrReject(first, user);
         }
         String houseId = Req.str(body, "houseId", true, 64);
         String leaseId = Req.str(body, "leaseId", false, 64);
@@ -74,22 +135,45 @@ public class RepairService {
         order.setType(type);
         order.setDescription(description);
         order.setExpectTime(expectTime);
-        order.setStatus("CREATED");
+        order.setStatus(CREATED);
         order.setVersion(0);
-        order.setIdemKey(idemKey);
+        order.setIdemKey(key);
         try {
             repairOrderDao.insert(order);
         } catch (DuplicateKeyException e) {
-            RepairOrder exists = idemKey == null ? null : repairOrderDao.findByIdemKey(idemKey);
+            RepairOrder exists = key == null ? null : repairOrderDao.findByIdemKey(key);
             if (exists != null) {
-                return createdResult(exists);
+                return reuseOrReject(exists, user);
             }
             throw ApiException.conflict("重复提交，请稍后重试");
         }
 
         saveImages(order.getId(), images, "SUBMIT");
-        writeLog(order.getId(), null, "CREATED", user, "提交报修");
+        writeLog(order.getId(), null, CREATED, user, "提交报修");
         return createdResult(order);
+    }
+
+    /**幂等键复用规则：必须同一租客、且首次提交在 24h 内，否则 409，避免跨人偷读工单 */
+    private Map<String, Object> reuseOrReject(RepairOrder first, User user) {
+        if (!user.getId().equals(first.getTenantId())) {
+            throw ApiException.conflict("Idempotency-Key 已被其他用户使用，请更换后重试");
+        }
+        Date created = first.getCreateDate();
+        if (created != null && System.currentTimeMillis() - created.getTime() > IDEM_TTL_MILLIS) {
+            throw ApiException.conflict("Idempotency-Key 已超过 24 小时有效期，请更换后重试");
+        }
+        return createdResult(first);
+    }
+
+    private String normalizeIdemKey(String idemKey) {
+        if (idemKey == null || idemKey.trim().isEmpty()) {
+            return null;
+        }
+        String key = idemKey.trim();
+        if (key.length() > 64) {
+            throw ApiException.bad("Idempotency-Key 超长（≤64 字符）");
+        }
+        return key;
     }
 
     public PageResult<Map<String, Object>> mine(User user, String status, int pageNo, int pageSize) {
@@ -129,6 +213,7 @@ public class RepairService {
         vo.put("tenantScore", order.getTenantScore());
         vo.put("tenantComment", order.getTenantComment());
         vo.put("version", order.getVersion());
+        vo.put("allowedNext", allowedNext(order.getStatus()));
         vo.put("createdAt", V2Time.iso(order.getCreateDate()));
 
         List<Map<String, Object>> logs = new ArrayList<>();
@@ -163,12 +248,19 @@ public class RepairService {
 
     /**accept / arrive / complete / confirm / cancel 共用一条状态流转路径 */
     public Map<String, Object> transition(String id, String action, Map<String, Object> body, User user) {
-        String[] edge = edgeOf(action);
-        String from = edge[0];
-        String to = edge[1];
+        String to = ACTION_TARGET.get(action);
+        if (to == null) {
+            throw ApiException.bad("未知的工单动作：" + action);
+        }
         RepairOrder order = require(id, user);
-        if (!from.equals(order.getStatus())) {
-            throw ApiException.conflict("当前状态不允许该操作（当前 " + order.getStatus() + "，需要 " + from + "）");
+        String from = order.getStatus();
+        if (from.equals(to)) {
+            throw ApiException.conflict("工单已是 " + from + "，重复操作不再受理");
+        }
+        if (!canTransit(from, to)) {
+            List<String> allowed = allowedNext(from);
+            throw ApiException.conflict("状态流转非法：" + from + " → " + to
+                    + (allowed.isEmpty() ? "，该状态为终态，不可再流转" : "，允许：" + String.join("/", allowed)));
         }
         assertActionRole(user, order, action);
 
@@ -218,6 +310,7 @@ public class RepairService {
         result.put("fromStatus", from);
         result.put("toStatus", to);
         result.put("version", version + 1);
+        result.put("allowedNext", allowedNext(to));
         return result;
     }
 
@@ -238,28 +331,17 @@ public class RepairService {
         if (v2Context.isAdmin(user)) {
             return;
         }
+        if ("cancel".equals(action)) {
+            //FR-REPAIR-04：租客/房东任一方可取消非终态工单
+            if (user.getId().equals(order.getTenantId()) || user.getId().equals(order.getLandlordId())) {
+                return;
+            }
+            throw ApiException.forbidden("仅租客或房东可取消该工单");
+        }
         boolean landlordAction = "accept".equals(action) || "arrive".equals(action) || "complete".equals(action);
         String owner = landlordAction ? order.getLandlordId() : order.getTenantId();
         if (owner == null || !owner.equals(user.getId())) {
             throw ApiException.forbidden(landlordAction ? "仅房东可处理该工单" : "仅租客可执行该操作");
-        }
-    }
-
-    /**待定 T-03：按更严格的「仅 CREATED 可取消」实现 */
-    private String[] edgeOf(String action) {
-        switch (action) {
-            case "accept":
-                return new String[]{"CREATED", "ACCEPTED"};
-            case "arrive":
-                return new String[]{"ACCEPTED", "ON_SITE"};
-            case "complete":
-                return new String[]{"ON_SITE", "COMPLETED"};
-            case "confirm":
-                return new String[]{"COMPLETED", "ACCEPTED_BY_TENANT"};
-            case "cancel":
-                return new String[]{"CREATED", "CANCELLED"};
-            default:
-                throw ApiException.bad("未知的工单动作：" + action);
         }
     }
 
@@ -306,6 +388,7 @@ public class RepairService {
         result.put("repairId", order.getId());
         result.put("status", order.getStatus());
         result.put("createdAt", V2Time.iso(order.getCreateDate()));
+        result.put("allowedNext", allowedNext(order.getStatus()));
         return result;
     }
 }
