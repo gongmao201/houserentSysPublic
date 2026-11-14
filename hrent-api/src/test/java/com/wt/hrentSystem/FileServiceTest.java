@@ -51,7 +51,7 @@ class FileServiceTest {
         ReflectionTestUtils.setField(service, "localDir", tempDir.toString());
 
         byte[] noisy = noisyJpeg(2200, 1600);
-        assertTrue(noisy.length > 200 * 1024, "样本必须大于 200KB，否则压缩断言无意义");
+        assertTrue(noisy.length > 200_000, "样本必须大于 200KB，否则压缩断言无意义");
 
         MockMultipartFile file = new MockMultipartFile(
                 "file", "repair.jpg", "image/jpeg", noisy);
@@ -59,7 +59,7 @@ class FileServiceTest {
 
         assertEquals(Boolean.TRUE, data.get("compressed"));
         long size = ((Number) data.get("size")).longValue();
-        assertTrue(size <= 200 * 1024, "压缩后应 ≤200KB，实际 " + size);
+        assertTrue(size <= 200_000, "压缩后应 ≤200KB，实际 " + size);
         assertTrue((Integer) data.get("width") <= 1600, "长边应缩到 1600 以内");
         assertTrue((Integer) data.get("height") <= 1600);
 
@@ -71,7 +71,7 @@ class FileServiceTest {
 
         File main = tempDir.resolve(((String) data.get("url")).replace("/images/", "")).toFile();
         File thumb = tempDir.resolve(thumbUrl.replace("/images/", "")).toFile();
-        assertTrue(main.exists() && main.length() <= 200 * 1024);
+        assertTrue(main.exists() && main.length() <= 200_000);
         assertTrue(thumb.exists() && thumb.length() > 0);
     }
 
@@ -87,7 +87,7 @@ class FileServiceTest {
         assertEquals(Boolean.TRUE, data.get("compressed"));
         assertEquals(200, data.get("width"));
         assertEquals(120, data.get("height"));
-        assertTrue(((Number) data.get("size")).longValue() <= 200 * 1024);
+        assertTrue(((Number) data.get("size")).longValue() <= 200_000);
     }
 
     private byte[] noisyJpeg(int width, int height) throws Exception {

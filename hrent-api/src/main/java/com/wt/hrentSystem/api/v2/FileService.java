@@ -42,7 +42,7 @@ public class FileService {
 
     private static final Logger log = LoggerFactory.getLogger(FileService.class);
     private static final long MAX_SIZE = 5L * 1024 * 1024;
-    private static final long TARGET_BYTES = 200L * 1024;
+    private static final long TARGET_BYTES = 200_000L;
     private static final int MAX_EDGE = 1600;
     private static final int THUMB_EDGE = 400;
     private static final int MIN_EDGE = 640;
