@@ -58,6 +58,33 @@
         WHERE id = #{id} AND status = 0 AND version = #{version} AND del_flag = 0
     </update>
 
+    <!-- 状态机通用流转：fromStatus + version 双条件，先查后改的竞态在这里被 SQL 收口 -->
+    <update id="transitionLease">
+        UPDATE hrent_house_renting
+        SET status = #{toStatus},
+            version = version + 1,
+            update_time = NOW()
+        <if test="actualEndDate != null">
+            , actual_end_date = STR_TO_DATE(#{actualEndDate}, '%Y-%m-%d')
+        </if>
+        WHERE id = #{id} AND status = #{fromStatus} AND version = #{version} AND del_flag = 0
+    </update>
+
+    <!-- ==================== 房源核验（上架审核） ==================== -->
+    <select id="getHouseForAudit" resultType="map">
+        SELECT h.id AS houseId, h.state AS state, h.create_by AS landlordId,
+               h.address AS title, h.money_fen AS priceFen
+        FROM hrent_house_resource h
+        WHERE h.id = #{houseId} AND h.del_flag = 0
+        LIMIT 1
+    </select>
+
+    <update id="updateHouseState">
+        UPDATE hrent_house_resource
+        SET state = #{state}, update_time = NOW()
+        WHERE id = #{houseId} AND del_flag = 0 AND state = 0
+    </update>
+
     <!-- ==================== 报修 ==================== -->
     <sql id="repairListCols">
         r.id AS id, r.house_id AS houseId, r.lease_id AS leaseId,

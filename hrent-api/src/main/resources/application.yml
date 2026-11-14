@@ -98,9 +98,12 @@ file:
   visitLocal: localhost:8888/hrent/images
 
 #JWT令牌配置（TOKEN_SECRET 优先，向后兼容旧变量 JWT_SECRET）
+#双验期：老 token 用 LEGACY 密钥兜底验签，过期后仍可宽限 legacy-grace-days 天
 token:
   secret: ${TOKEN_SECRET:${JWT_SECRET:}}
   expire-days: 7
+  legacy-secret: ${TOKEN_LEGACY_SECRET:}
+  legacy-grace-days: ${TOKEN_LEGACY_GRACE_DAYS:7}
 
 #微信小程序配置（未配置时微信登录接口返回明确错误，不会伪造登录）
 #必须带空默认值：${WECHAT_APP_ID} 在环境变量缺失时会让 Spring 启动直接失败

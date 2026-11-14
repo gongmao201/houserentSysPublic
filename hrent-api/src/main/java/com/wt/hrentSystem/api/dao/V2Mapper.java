@@ -26,6 +26,23 @@ public interface V2Mapper {
                        @Param("actualEndDate") String actualEndDate,
                        @Param("version") int version);
 
+    /**
+     * 租约状态机通用流转：一条 SQL 完成状态校验 + 乐观锁 + 可选退租日落库。
+     * 只允许调用方先按 TRANSITIONS 白名单判定，SQL 再按 fromStatus 兜底，双保险。
+     */
+    int transitionLease(@Param("id") String id,
+                        @Param("fromStatus") int fromStatus,
+                        @Param("toStatus") int toStatus,
+                        @Param("actualEndDate") String actualEndDate,
+                        @Param("version") int version);
+
+    /**房源核验前的状态读取（state：0 审核中 / 1 已审核 / 2 已租） */
+    Map<String, Object> getHouseForAudit(@Param("houseId") String houseId);
+
+    /**核验通过后把房源从审核中置为已审核；已租/已审核不降级 */
+    int updateHouseState(@Param("houseId") String houseId,
+                         @Param("state") int state);
+
     List<Map<String, Object>> findMyRepairs(@Param("userId") String userId,
                                            @Param("status") String status,
                                            @Param("isAdmin") boolean isAdmin,
