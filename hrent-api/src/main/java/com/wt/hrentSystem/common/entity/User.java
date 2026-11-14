@@ -38,6 +38,10 @@ public class User extends BaseEntity<User> {
      */
     private String password;
     /**
+     * 密码算法：md5（存量） / bcrypt（登录时静默升级后的目标态）
+     */
+    private String pwdAlgo;
+    /**
      * 邮箱
      */
     private String email;

@@ -15,12 +15,13 @@ src/main/resources/db/
 │   ├── V3__rating_module.sql              平台核验 + 评价 + 申诉 + 评分汇总
 │   ├── V4__repair_module.sql              报修工单 + 图片 + 流转日志
 │   ├── V5__bill_module.sql                账单（扩展 hrent_rent）+ 明细
-│   └── V6__ai_module.sql                  向量表（二期）+ AI 埋点（本期用）
+│   ├── V6__ai_module.sql                  向量表（二期）+ AI 埋点（本期用）
+│   └── V8__legacy_write_sync.sql          老写入路径兜底：触发器把元字段同步到分/日期字段
 ├── seed/
 │   ├── seed_dev.sql             开发/演示种子：60 房 / 41 租约 / 50 评价 / 90 账单
 │   └── reset_dev.sql            只删 SEED 前缀数据，不动表结构
 ├── rollback/
-│   └── rollback_all.sql         仅演示环境用：撤掉 V2~V6（会 DROP，慎重）
+│   └── rollback_all.sql         仅演示环境用：撤掉 V2~V8（会 DROP 触发器/表/列，慎重）
 ├── verify.sql                   对账脚本，20 项，可随时重跑
 └── README.md
 ```
@@ -47,7 +48,7 @@ src/main/resources/db/
 # 1) 建库（排序规则必须与存量库一致，否则 JOIN 会报 Illegal mix of collations）
 mysql -uroot -p -e "CREATE DATABASE house_rent DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
-# 2) 启动应用，Flyway 自动跑 V1~V6
+# 2) 启动应用，Flyway 自动跑 V1~V8
 mvn spring-boot:run
 
 # 3) 灌种子数据（不进 Flyway，手动执行）
@@ -66,7 +67,7 @@ mysqldump -uroot -p --single-transaction --routines --triggers house_rent > back
 # 1) 只读预检：确认是 13 表干净老库、无 V2/V5 列、无空串日期
 mysql -uroot -p --default-character-set=utf8mb4 house_rent < src/main/resources/db/preflight.sql
 
-# 2) 启动应用，Flyway 自动：baseline 0 → 执行 V1（全部 IF NOT EXISTS，空操作）→ V2~V6
+# 2) 启动应用，Flyway 自动：baseline 0 → 执行 V1（全部 IF NOT EXISTS，空操作）→ V2~V8
 mvn spring-boot:run
 
 # 3) 对账（重点看 2.x / 3.x / 5.x 是否全 0）
@@ -117,7 +118,7 @@ spring:
 
 ## 四、对账脚本怎么读
 
-`verify.sql` 每行输出 `检查项 / 实际 / 期望`，共 9 组 20 项。**只要有一项"实际 ≠ 期望"，不许进联调。**
+`verify.sql` 每行输出 `检查项 / 实际 / 期望`，共 9 组 21 项。**只要有一项"实际 ≠ 期望"，不许进联调。**
 
 | 组 | 查什么 | 不符意味着 |
 |---|---|---|

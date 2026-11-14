@@ -30,6 +30,20 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------
+-- 1.3 V8 存量写入触发器（老 Controller 写元字段，触发器补齐新字段）
+-- ---------------------------------------------------------------------
+SELECT '1.3 V8 触发器数量（期望 14）' AS 检查项, COUNT(*) AS 实际, 14 AS 期望
+FROM information_schema.triggers
+WHERE trigger_schema = DATABASE()
+  AND trigger_name IN ('trg_house_resource_bi', 'trg_house_resource_bu',
+                       'trg_apply_rent_bi', 'trg_apply_rent_bu',
+                       'trg_renting_money_bi', 'trg_renting_money_bu',
+                       'trg_renting_start_bi', 'trg_renting_start_bu',
+                       'trg_renting_end_bi', 'trg_renting_end_bu',
+                       'trg_renting_status_bi',
+                       'trg_rent_period_bi', 'trg_rent_amount_bi', 'trg_rent_paid_bi');
+
+-- ---------------------------------------------------------------------
 -- 2. 金额对账：元字段 × 100 必须等于分字段（误差 0）
 -- ---------------------------------------------------------------------
 SELECT '2.1 房源金额不一致行数（期望 0）' AS 检查项, COUNT(*) AS 实际, 0 AS 期望

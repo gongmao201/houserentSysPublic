@@ -36,7 +36,7 @@
     <!--查询单个-->
     <select id="get" resultMap="PicMap">
         select <include refid="picCols"></include>
-        from house_rent.hrent_pic
+        from hrent_pic
         where id = #{id}
     </select>
 
@@ -45,7 +45,7 @@
     <select id="findList" resultMap="PicMap">
         select
         <include refid="picCols"></include>
-        from house_rent.hrent_pic a
+        from hrent_pic a
         <where>
             a.del_flag = 0
             <if test="id != null and id != ''">
@@ -86,7 +86,7 @@
 
     <!--新增所有列-->
     <insert id="insert" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.hrent_pic(id,
+        insert into hrent_pic(id,
                                          name,
                                          type,
                                          state,
@@ -105,7 +105,7 @@
 
     <!--通过主键修改数据-->
     <update id="update">
-        update house_rent.hrent_pic
+        update hrent_pic
         <set>
             <if test="name != null and name != ''">
                 name = #{name},
@@ -146,7 +146,7 @@
 
     <!--通过主键删除-->
     <update id="delete">
-        update house_rent.hrent_pic
+        update hrent_pic
         <set>
             del_flag = 1
         </set>
@@ -158,7 +158,7 @@
 
     <!--物理删除数据-->
     <delete id="realDelete">
-        delete from house_rent.hrent_pic
+        delete from hrent_pic
         where id = #{id}
     </delete>
 

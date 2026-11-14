@@ -38,7 +38,7 @@
     <!--查询单个-->
     <select id="get" resultMap="RentMap">
         select <include refid="rentCols"></include>
-        from house_rent.hrent_rent a
+        from hrent_rent a
         where id = #{id}
     </select>
 
@@ -46,7 +46,7 @@
     <select id="findList" resultMap="RentMap">
         select
         <include refid="rentCols"></include>
-        from house_rent.hrent_rent a
+        from hrent_rent a
         <where>
                 a.del_flag = 0
             <if test="id != null and id != ''">
@@ -97,7 +97,7 @@
 
     <!--新增所有列-->
     <insert id="insert" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.hrent_rent(id,
+        insert into hrent_rent(id,
                                           renting_id,
                                           payable_time,
                                           pay_time,
@@ -115,7 +115,7 @@
 
     <!--通过主键修改数据-->
     <update id="update">
-        update house_rent.hrent_rent
+        update hrent_rent
         <set>
             <if test="rentingId != null and rentingId != ''">
                 renting_id = #{rentingId},
@@ -156,7 +156,7 @@
 
     <!--通过主键删除-->
     <update id="delete">
-        update house_rent.hrent_rent
+        update hrent_rent
         <set>
             del_flag = 1
         </set>
