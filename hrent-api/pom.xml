@@ -41,6 +41,18 @@
             <version>1.6.14</version>
         </dependency>
 
+        <!-- 监控：Actuator + Prometheus 注册表。
+             Boot 2.5.5 管理 actuator 2.5.5 / micrometer 1.7.x，无需写版本。
+             出口：GET /hrent/actuator/prometheus（文本格式，Prometheus 直接 scrape） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>

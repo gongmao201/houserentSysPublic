@@ -134,7 +134,8 @@ WHERE table_schema = DATABASE() AND table_collation NOT LIKE 'utf8mb4%';
 SELECT '7.2 排序规则不一致的表（期望 1 种）' AS 检查项,
        COUNT(DISTINCT table_collation) AS 实际, 1 AS 期望
 FROM information_schema.tables
-WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE';
+WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'
+  AND table_name <> 'flyway_schema_history';
 
 -- ---------------------------------------------------------------------
 -- 8. 索引：高频查询必须走索引（缺失即性能债）
@@ -155,5 +156,27 @@ WHERE NOT EXISTS (
 -- ---------------------------------------------------------------------
 -- 9. 时区（写入与读取必须同为 +08:00）
 -- ---------------------------------------------------------------------
-SELECT '9.1 会话时区' AS 检查项, @@session.time_zone AS 值, 'SYSTEM 或 +08:00（JDBC 必须显式传 serverTimezone=Asia/Shanghai）' AS 期望;
+SELECT '9.1 会话时区' AS 检查项, @@session.time_zone AS 值,
+       'CLI 直连为 SYSTEM；应用连接由 hikari connection-init-sql 固定为 +08:00' AS 期望;
 SELECT '9.2 当前时间' AS 检查项, NOW() AS 值, '应与北京时间一致' AS 期望;
+
+-- ---------------------------------------------------------------------
+-- 10. 新表 DDL 与时区/字符集固化（V9）
+-- ---------------------------------------------------------------------
+SELECT '10.1 新模块表缺失数（期望 0）' AS 检查项,
+       8 - COUNT(*) AS 实际, 0 AS 期望
+FROM information_schema.tables
+WHERE table_schema = DATABASE()
+  AND table_name IN ('house_audit', 'review', 'review_appeal', 'rating_summary',
+                     'repair_order', 'repair_image', 'repair_log', 'bill_item');
+
+SELECT '10.2 非 utf8mb4_general_ci 的业务表（期望 0）' AS 检查项, COUNT(*) AS 实际, 0 AS 期望
+FROM information_schema.tables
+WHERE table_schema = DATABASE()
+  AND table_name <> 'flyway_schema_history'
+  AND table_collation <> 'utf8mb4_general_ci';
+
+SELECT '10.3 库默认排序规则（期望 utf8mb4_general_ci）' AS 检查项,
+       (SELECT default_collation_name FROM information_schema.schemata WHERE schema_name = DATABASE()) AS 值,
+       'utf8mb4_general_ci' AS 期望;
+

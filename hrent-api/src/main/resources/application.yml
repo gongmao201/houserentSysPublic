@@ -6,7 +6,12 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     name: hrent
     hikari:
+      pool-name: hrent-pool
       auto-commit: true
+      #每建立一条物理连接就固定会话时区为 +08:00：
+      #不依赖 MySQL 服务器的 time_zone=SYSTEM，也不依赖操作系统时区，
+      #保证 DATETIME 读写与 Java 侧 Asia/Shanghai 一致。
+      connection-init-sql: "SET time_zone = '+08:00'"
       #空闲连接超时时长
       idle-timeout: 60000
       #连接超时时长
@@ -17,6 +22,11 @@ spring:
       minimum-idle: 10
       #最大连接数量
       maximum-pool-size: 10
+
+  # 统一序列化时区，避免接口返回时间出现 8 小时偏移
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
 
   # v2 上传：契约要求 ≤5MB，Spring Boot 默认 1MB 会在进入 Controller 前拦截
   servlet:
@@ -35,11 +45,11 @@ spring:
     timeout: 2s
     connect-timeout: 2s
 
-  # Flyway：V1–V6 顺序执行；老库非空时按 baseline 处理
+  # Flyway：V1–V9 顺序执行；老库非空时按 baseline 处理
   # baseline-version=0：空库/干净老库都从 V1 开始（V1 全是 IF NOT EXISTS）
   # 已手动跑过 V6 的库改成 6；半迁移库禁止自动，先恢复或回滚
   flyway:
-    enabled: true           # 已验证：干净老库 baseline 0，空库直接 V1–V7
+    enabled: true           # 已验证：干净老库 baseline 0，空库直接 V1–V9
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
@@ -113,5 +123,40 @@ springdoc:
     tags-sorter: alpha
   packages-to-scan: com.wt.hrentSystem
   paths-to-match: /**
+
+# =====================================================================
+# 监控（Actuator + Micrometer Prometheus）
+#   健康：GET /hrent/actuator/health          存活/就绪（liveness/readiness）
+#   指标：GET /hrent/actuator/prometheus      Prometheus 抓取口
+#   指标：GET /hrent/actuator/metrics         调试用，按名字查单项
+# 抓取与告警：deploy/prometheus/prometheus.yml、deploy/prometheus/alerts.yml
+# =====================================================================
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  # Redis 在本项目是可降级的增强能力（吊销名单/缓存），未部署 Redis 时业务照常跑，
+  # 不能让 /actuator/health 整体 DOWN（否则探活、K8s readiness、告警全部误报）。
+  health:
+    redis:
+      enabled: false
+  info:
+    env:
+      enabled: true
+  metrics:
+    tags:
+      application: hrent-api
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
 
 

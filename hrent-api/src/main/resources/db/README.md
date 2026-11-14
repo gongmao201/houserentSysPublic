@@ -16,12 +16,13 @@ src/main/resources/db/
 │   ├── V4__repair_module.sql              报修工单 + 图片 + 流转日志
 │   ├── V5__bill_module.sql                账单（扩展 hrent_rent）+ 明细
 │   ├── V6__ai_module.sql                  向量表（二期）+ AI 埋点（本期用）
-│   └── V8__legacy_write_sync.sql          老写入路径兜底：触发器把元字段同步到分/日期字段
+│   ├── V8__legacy_write_sync.sql          老写入路径兜底：触发器把元字段同步到分/日期字段
+│   └── V9__charset_timezone_hardening.sql  字符集/排序规则统一 + 新表齐备性硬校验
 ├── seed/
 │   ├── seed_dev.sql             开发/演示种子：60 房 / 41 租约 / 50 评价 / 90 账单
 │   └── reset_dev.sql            只删 SEED 前缀数据，不动表结构
 ├── rollback/
-│   └── rollback_all.sql         仅演示环境用：撤掉 V2~V8（会 DROP 触发器/表/列，慎重）
+│   └── rollback_all.sql         仅演示环境用：撤掉 V2~V8（V9 只做字符集转换，无需回滚）（会 DROP 触发器/表/列，慎重）
 ├── verify.sql                   对账脚本，20 项，可随时重跑
 └── README.md
 ```
@@ -48,7 +49,7 @@ src/main/resources/db/
 # 1) 建库（排序规则必须与存量库一致，否则 JOIN 会报 Illegal mix of collations）
 mysql -uroot -p -e "CREATE DATABASE house_rent DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
-# 2) 启动应用，Flyway 自动跑 V1~V8
+# 2) 启动应用，Flyway 自动跑 V1~V9
 mvn spring-boot:run
 
 # 3) 灌种子数据（不进 Flyway，手动执行）
@@ -118,7 +119,7 @@ spring:
 
 ## 四、对账脚本怎么读
 
-`verify.sql` 每行输出 `检查项 / 实际 / 期望`，共 9 组 21 项。**只要有一项"实际 ≠ 期望"，不许进联调。**
+`verify.sql` 每行输出 `检查项 / 实际 / 期望`，共 10 组 24 项（含 V9 的字符集/新表检查）。**只要有一项"实际 ≠ 期望"，不许进联调。**
 
 | 组 | 查什么 | 不符意味着 |
 |---|---|---|
