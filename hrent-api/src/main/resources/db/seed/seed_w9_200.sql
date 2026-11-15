@@ -284,7 +284,7 @@ WHERE a.id LIKE 'W9A%'
 ON DUPLICATE KEY UPDATE official_score = VALUES(official_score);
 
 -- ---------------------------------------------------------------------
--- 9. 自检（应输出 200 / 52 / 50 / 90 / 360）
+-- 9. 自检（应输出 200 / 53 / 50 / 90 / 360）
 -- ---------------------------------------------------------------------
 SELECT '房源' AS 对象, COUNT(*) AS 条数 FROM hrent_house_resource WHERE id LIKE 'W9H%'
 UNION ALL SELECT '租约', COUNT(*) FROM hrent_house_renting WHERE id LIKE 'W9G%'
