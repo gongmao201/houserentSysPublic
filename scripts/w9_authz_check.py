@@ -386,6 +386,12 @@ def integration_and_owner_matrix():
     # logout 最后
     check("POST /auth/logout", "T1 退出登录", "POST", API + "/auth/logout", tokens["T1"], {}, 200)
 
+    # 写库型联调放在最后：避免影响前面对 90 条账单的断言
+    check("POST /bill/generate", "L1 单租约生成账单", "POST", API + "/bill/generate", tokens["L1"],
+          {"rentingId": "W9G033", "period": "2027-03"}, 200)
+    check("POST /bill/scheduler/run", "admin 批量生成账单", "POST", API + "/bill/scheduler/run",
+          tokens["admin"], {"period": "2027-04"}, 200)
+
 
 def report():
     total = len(results)
