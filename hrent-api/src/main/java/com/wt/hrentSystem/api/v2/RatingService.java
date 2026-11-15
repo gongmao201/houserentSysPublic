@@ -95,6 +95,11 @@ public class RatingService {
         if (expectedTarget == null || !expectedTarget.equals(targetId)) {
             throw ApiException.unprocessable("评价对象与该租约不匹配");
         }
+        // 越权红线：房东不能给自己的房源写评价（多角色账号也可能同时是租客）
+        if ("HOUSE".equals(targetType)
+                && user.getId().equals(Rows.str(lease.get("landlordId")))) {
+            throw ApiException.forbidden("不能评价自己发布的房源");
+        }
         Object actualEnd = lease.get("actualEndDate");
         if (actualEnd == null) {
             throw ApiException.unprocessable("缺少实际退租日，评价窗口未开启");

@@ -12,6 +12,17 @@
         WHERE id = #{houseId} AND del_flag = 0 LIMIT 1
     </select>
 
+    <select id="countTenantActiveLease" resultType="int">
+        SELECT COUNT(*) FROM hrent_house_renting
+        WHERE tenant_id = #{tenantId}
+          AND house_id = #{houseId}
+          AND status = 0
+          AND del_flag = 0
+        <if test="leaseId != null and leaseId != ''">
+            AND id = #{leaseId}
+        </if>
+    </select>
+
     <!-- ==================== 租约 ==================== -->
     <sql id="leaseCols">
         <!-- hrent_house_renting 无 tenant_name 列（实测 MySQL 1054），不要凭实体字段臆造列名 -->

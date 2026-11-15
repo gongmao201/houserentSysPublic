@@ -16,6 +16,14 @@ public interface V2Mapper {
 
     String findLandlordIdByHouseId(@Param("houseId") String houseId);
 
+    /**
+     * 报修创建前置校验：当前租客在该房源是否有生效租约。
+     * leaseId 非空时同时校验租约确实属于本人、该房源，防止拿别人的租约号提交。
+     */
+    int countTenantActiveLease(@Param("tenantId") String tenantId,
+                              @Param("houseId") String houseId,
+                              @Param("leaseId") String leaseId);
+
     Map<String, Object> getLeaseById(@Param("id") String id);
 
     List<Map<String, Object>> findMyLeases(@Param("userId") String userId,

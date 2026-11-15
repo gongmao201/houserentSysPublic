@@ -125,6 +125,11 @@ public class RepairService {
         if (landlordId == null) {
             throw ApiException.notFound("房源不存在或已删除");
         }
+        // 越权红线：报修只能由该房源当前生效租约的租客提交；管理员用于补录可例外
+        if (!v2Context.isAdmin(user)
+                && v2Mapper.countTenantActiveLease(user.getId(), houseId, leaseId) == 0) {
+            throw ApiException.forbidden("仅该房源当前生效租约的租客可提交报修");
+        }
 
         RepairOrder order = new RepairOrder();
         order.preInsert();
