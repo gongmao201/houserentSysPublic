@@ -1,7 +1,8 @@
 -- W9 种子数据清理（只删 W9 前缀，不碰 admin 与真实业务数据）
 SET NAMES utf8mb4;
-DELETE FROM bill_item          WHERE rent_id   LIKE 'W9R%';
-DELETE FROM hrent_rent         WHERE id        LIKE 'W9R%';
+DELETE FROM bill_item          WHERE rent_id   LIKE 'W9R%'
+                                  OR rent_id IN (SELECT id FROM hrent_rent WHERE renting_id LIKE 'W9G%' OR tenant_id LIKE 'W9%');
+DELETE FROM hrent_rent         WHERE id        LIKE 'W9R%' OR renting_id LIKE 'W9G%' OR tenant_id LIKE 'W9%';
 DELETE FROM repair_image       WHERE repair_id IN (SELECT id FROM repair_order WHERE tenant_id LIKE 'W9%' OR house_id LIKE 'W9H%');
 DELETE FROM repair_log         WHERE repair_id IN (SELECT id FROM repair_order WHERE tenant_id LIKE 'W9%' OR house_id LIKE 'W9H%');
 DELETE FROM repair_order       WHERE tenant_id LIKE 'W9%' OR house_id LIKE 'W9H%';

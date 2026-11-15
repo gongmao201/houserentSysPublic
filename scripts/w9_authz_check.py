@@ -389,8 +389,8 @@ def integration_and_owner_matrix():
     # 写库型联调放在最后：避免影响前面对 90 条账单的断言
     check("POST /bill/generate", "L1 单租约生成账单", "POST", API + "/bill/generate", tokens["L1"],
           {"rentingId": "W9G033", "period": "2027-03"}, 200)
-    check("POST /bill/scheduler/run", "admin 批量生成账单", "POST", API + "/bill/scheduler/run",
-          tokens["admin"], {"period": "2027-04"}, 200)
+    check("POST /bill/scheduler/run", "admin 批量生成账单（空账期）", "POST", API + "/bill/scheduler/run",
+          tokens["admin"], {"period": "2099-01"}, 200)
 
 
 def report():
