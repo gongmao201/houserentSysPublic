@@ -3,6 +3,7 @@ package com.wt.hrentSystem.api.v2;
 import com.wt.hrentSystem.api.dao.V2Mapper;
 import com.wt.hrentSystem.common.dao.UserDao;
 import com.wt.hrentSystem.common.entity.User;
+import com.wt.hrentSystem.common.service.TokenBlacklistService;
 import com.wt.hrentSystem.common.util.TokenUtils;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,9 @@ public class V2Context {
     @Resource
     private V2Mapper v2Mapper;
 
+    @Resource
+    private TokenBlacklistService tokenBlacklistService;
+
     public User current(HttpServletRequest request) {
         String token = request.getHeader("token");
         if (token == null || token.trim().isEmpty()) {
@@ -36,6 +40,10 @@ public class V2Context {
         String userId = TokenUtils.getUserId(token);
         if (userId == null || userId.isEmpty()) {
             throw new ApiException(ApiCodes.UNAUTHORIZED, "未登录或登录已过期");
+        }
+        // 已退出登录的令牌：Redis 写入吊销名单；Redis 不可用时降级为不拦截
+        if (tokenBlacklistService.isRevoked(token)) {
+            throw new ApiException(ApiCodes.UNAUTHORIZED, "登录状态已失效，请重新登录");
         }
         User user = userDao.get(userId);
         if (user == null) {

@@ -337,7 +337,18 @@
 - 响应时间：结构化结果 <1s；`mode=llm` 时 `reason` 可为异步补充（另开接口），不阻塞列表。
 - 无结果时返回空 `list` + `message:"没有完全匹配的房源，已为你放宽预算 20%"`（放宽策略后端做，前端只展示）。
 
-**② 理由补全（可选，LLM 模式）** `POST /api/v2/ai/reason` `{ "houseIds":["...","..."] }` → `{ "items":[{"houseId":"...","reason":"..."}] }`，超时 5s 返回空数组，前端保留模板文案。
+**② 理由补全（可选，LLM 模式）** `POST /api/v2/ai/reason` `{ "houseIds":["...","..."] }` → `{ "items":[{"houseId":"...","reason":"..."}], "mode":"llm", "source":"local" }`；模型全挂时 `mode=rule`、理由保留模板，仍返回 200。
+
+**②-1 理由 SSE 增强** `POST /api/v2/ai/reason/stream` `{ "houseIds":["..."] }`（`text/event-stream`，需登录，最多 10 个）：
+
+| 事件 | data | 说明 |
+|---|---|---|
+| `meta` | `{total,mode:"stream"}` | 建流 |
+| `template` | `{houseId,reason,source:"rule"}` | **先推模板**，首帧不等模型 |
+| `reason` | `{houseId,reason,source}` | 模型增强成功时推，`source=local/deepseek` |
+| `done` | `{source,mode,total,enhanced}` | 结束；模型全挂 `source=rule/enhanced=0` |
+
+降级链固定为 `local(3s) → deepseek(8s) → rule`，事件流不会因模型失败而中断。
 
 **③ 反馈埋点** `POST /api/v2/ai/feedback` `{ "houseId":"...", "action":"CLICK" }`（`IMPRESSION/CLICK/APPLY`），用于评测集校准。
 

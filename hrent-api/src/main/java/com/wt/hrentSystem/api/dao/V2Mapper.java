@@ -16,6 +16,14 @@ public interface V2Mapper {
 
     String findLandlordIdByHouseId(@Param("houseId") String houseId);
 
+    /**
+     * 报修创建前置校验：当前租客在该房源是否有生效租约。
+     * leaseId 非空时同时校验租约确实属于本人、该房源，防止拿别人的租约号提交。
+     */
+    int countTenantActiveLease(@Param("tenantId") String tenantId,
+                              @Param("houseId") String houseId,
+                              @Param("leaseId") String leaseId);
+
     Map<String, Object> getLeaseById(@Param("id") String id);
 
     List<Map<String, Object>> findMyLeases(@Param("userId") String userId,
@@ -25,6 +33,23 @@ public interface V2Mapper {
     int terminateLease(@Param("id") String id,
                        @Param("actualEndDate") String actualEndDate,
                        @Param("version") int version);
+
+    /**
+     * 租约状态机通用流转：一条 SQL 完成状态校验 + 乐观锁 + 可选退租日落库。
+     * 只允许调用方先按 TRANSITIONS 白名单判定，SQL 再按 fromStatus 兜底，双保险。
+     */
+    int transitionLease(@Param("id") String id,
+                        @Param("fromStatus") int fromStatus,
+                        @Param("toStatus") int toStatus,
+                        @Param("actualEndDate") String actualEndDate,
+                        @Param("version") int version);
+
+    /**房源核验前的状态读取（state：0 审核中 / 1 已审核 / 2 已租） */
+    Map<String, Object> getHouseForAudit(@Param("houseId") String houseId);
+
+    /**核验通过后把房源从审核中置为已审核；已租/已审核不降级 */
+    int updateHouseState(@Param("houseId") String houseId,
+                         @Param("state") int state);
 
     List<Map<String, Object>> findMyRepairs(@Param("userId") String userId,
                                            @Param("status") String status,
@@ -80,7 +105,24 @@ public interface V2Mapper {
                    @Param("period") String period,
                    @Param("amountFen") long amountFen,
                    @Param("payableDate") String payableDate,
-                   @Param("tenantId") String tenantId);
+                   @Param("tenantId") String tenantId,
+                   @Param("operatorId") String operatorId);
+
+    /**按月自动生成：当前生效、未结束、且该账期还没账单的租约 */
+    List<Map<String, Object>> findRentingsForMonthlyBill(@Param("period") String period,
+                                                        @Param("periodStart") String periodStart,
+                                                        @Param("periodEnd") String periodEnd);
+
+    /**逾期候选：已到应缴日、未结清、尚未发过逾期通知 */
+    List<Map<String, Object>> findOverdueBillCandidates(@Param("limit") int limit);
+
+    /**逾期发送幂等：只有 overdue_notified_at 为空时才能更新成功 */
+    int markOverdueNotified(@Param("id") String id);
+
+    /**追加费用明细时同步抬高应收，先条件更新防并发/已缴账单被改 */
+    int addBillItemAmount(@Param("id") String id,
+                          @Param("amountFen") long amountFen,
+                          @Param("version") int version);
 
     int updateBillPaid(@Param("id") String id,
                        @Param("paidFen") long paidFen,

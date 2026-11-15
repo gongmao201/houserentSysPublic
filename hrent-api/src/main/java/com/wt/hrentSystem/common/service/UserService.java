@@ -8,7 +8,7 @@ import com.wt.hrentSystem.common.dao.UserDao;
 import com.wt.hrentSystem.common.entity.Page;
 import com.wt.hrentSystem.common.entity.ResponseResult;
 import com.wt.hrentSystem.common.entity.User;
-import com.wt.hrentSystem.common.util.MD5Utils;
+import com.wt.hrentSystem.common.util.PasswordUtils;
 import com.wt.hrentSystem.common.util.UserUtils;
 import com.wt.hrentSystem.hrent.config.PicType;
 import com.wt.hrentSystem.hrent.dao.ApplyRentDao;
@@ -135,26 +135,21 @@ public class UserService extends BaseService<UserDao, User>{
     @Transactional
     public void save(User user){
         String password = user.getPassword();
-        //对用户密码进行加密处理
+        //对用户密码进行加密处理（新写入统一 BCrypt，存量 MD5 由登录时静默升级）
         String s = null;
-        try {
-            if(StringUtils.isNotBlank(password)){
-                s = MD5Utils.EncoderByMd5(password);
-            }
-            //判断是否有头像,如果有则新增一条头像数据
-            if(StringUtils.isNotBlank(user.getHeadUrl())){
-                Pic pic = new Pic();
-                pic.setCurrentUser(user.getCurrentUser());
-                pic.setType(PicType.User);
-                pic.setUrl(user.getHeadUrl());
-                pic.preInsert();
-                picService.insert(pic);
-                user.setPId(pic.getId());
-            }
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+        if(StringUtils.isNotBlank(password)){
+            s = PasswordUtils.encodeBcrypt(password);
+            user.setPwdAlgo(PasswordUtils.ALGO_BCRYPT);
+        }
+        //判断是否有头像,如果有则新增一条头像数据
+        if(StringUtils.isNotBlank(user.getHeadUrl())){
+            Pic pic = new Pic();
+            pic.setCurrentUser(user.getCurrentUser());
+            pic.setType(PicType.User);
+            pic.setUrl(user.getHeadUrl());
+            pic.preInsert();
+            picService.insert(pic);
+            user.setPId(pic.getId());
         }
         user.setPassword(s);
         super.save(user);
@@ -172,16 +167,11 @@ public class UserService extends BaseService<UserDao, User>{
     @Transactional
     public void register(User user) {
         String password = user.getPassword();
-        //对用户密码进行加密处理
+        //注册密码统一 BCrypt（老用户仍是 MD5，由登录双哈希兼容）
         String s = null;
-        try {
-            if(StringUtils.isNotBlank(password)){
-                s = MD5Utils.EncoderByMd5(password);
-            }
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+        if(StringUtils.isNotBlank(password)){
+            s = PasswordUtils.encodeBcrypt(password);
+            user.setPwdAlgo(PasswordUtils.ALGO_BCRYPT);
         }
         user.setPassword(s);
         user.setRole(1);

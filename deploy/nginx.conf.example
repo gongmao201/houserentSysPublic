@@ -11,7 +11,8 @@
 # 说明：
 #   - proxy_pass 不带 URI 后缀，原始路径 /hrent/xxx 原样转发给后端，
 #     不会因为多写/少写斜杠导致 404。这是最容易踩的坑，别改成带 /hrent/ 的写法。
-#   - client_max_body_size 必须 ≥ 后端 multipart 上限（当前 6MB）。
+#   - client_max_body_size 必须 ≥ 后端 multipart 上限（当前单文件 5MB、单请求 6MB）；
+#     报修多图上传建议统一放开到 10m，避免默认 1m 直接 413。
 # =============================================================================
 
 server {
@@ -22,8 +23,8 @@ server {
     root /opt/hrent/web;
     index index.html;
 
-    # 与后端 spring.servlet.multipart.max-request-size 对齐（6MB），留 1MB 余量
-    client_max_body_size 7m;
+    # 报修多图上传：统一 10m（后端单文件 5MB / 单请求 6MB，留出多部分开销）
+    client_max_body_size 10m;
 
     # 上传图片等长连接场景，避免默认 60s 掐断
     proxy_connect_timeout 10s;

@@ -8,7 +8,11 @@
 --   cmd /c "mysql -uroot -p --default-character-set=utf8mb4 < house_rent.sql"
 -- =====================================================================
 
--- 重复执行安全：先清掉旧库
+-- ⚠⚠⚠ 危险：本脚本第 12 行会 DROP DATABASE house_rent —— 执行会清空现有库
+--     （含全部业务数据与 flyway_schema_history）。仅在"从零初始化"时使用；
+--     已有数据的库请勿执行，需要补结构请走 Flyway 迁移（启动应用自动完成）。
+-- ⚠⚠⚠
+-- 重复执行效果：先删库再重建，数据回到脚本内的演示种子
 DROP DATABASE IF EXISTS house_rent;
 
 CREATE DATABASE IF NOT EXISTS house_rent

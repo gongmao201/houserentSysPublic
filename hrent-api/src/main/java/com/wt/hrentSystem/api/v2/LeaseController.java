@@ -49,4 +49,22 @@ public class LeaseController {
         User user = v2Context.current(request);
         return ApiResponse.ok(leaseService.terminate(id, body, user));
     }
+
+    /**到期：生效中 → 已到期（房东/管理员） */
+    @PostMapping("/{id}/expire")
+    public ApiResponse<Map<String, Object>> expire(@PathVariable("id") String id,
+                                                   @RequestBody(required = false) Map<String, Object> body,
+                                                   HttpServletRequest request) {
+        User user = v2Context.current(request);
+        return ApiResponse.ok(leaseService.expire(id, body, user));
+    }
+
+    /**解约：生效中 → 已解约（租客/房东/管理员），必须写原因 */
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<Map<String, Object>> cancel(@PathVariable("id") String id,
+                                                   @RequestBody Map<String, Object> body,
+                                                   HttpServletRequest request) {
+        User user = v2Context.current(request);
+        return ApiResponse.ok(leaseService.cancel(id, body, user));
+    }
 }

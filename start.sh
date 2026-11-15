@@ -177,6 +177,11 @@ build_jvm_args() {
     if [ ${#JVM_ARGS[@]} -eq 0 ]; then
         JVM_ARGS+=("-Dfile.encoding=UTF-8")
     fi
+    # 时区固化：Java 侧统一北京时间，不依赖宿主机时区
+    case " ${JVM_ARGS[*]} " in
+        *" -Duser.timezone="*) : ;;
+        *) JVM_ARGS+=("-Duser.timezone=Asia/Shanghai") ;;
+    esac
     if [ "$JAVA_MAJOR" -ge 9 ]; then
         JVM_ARGS+=("--add-opens" "java.base/java.lang=ALL-UNNAMED")
         JVM_ARGS+=("--add-opens" "java.base/java.math=ALL-UNNAMED")
