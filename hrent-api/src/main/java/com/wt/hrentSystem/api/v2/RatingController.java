@@ -69,4 +69,12 @@ public class RatingController {
         User user = v2Context.current(request);
         return ApiResponse.ok(ratingService.audit(body, user));
     }
+
+    /**核验结果回读：房东本人或管理员 */
+    @GetMapping("/house/{houseId}/audit")
+    public ApiResponse<Map<String, Object>> auditDetail(@PathVariable("houseId") String houseId,
+                                                        HttpServletRequest request) {
+        User user = v2Context.current(request);
+        return ApiResponse.ok(ratingService.auditDetail(houseId, user));
+    }
 }

@@ -1,0 +1,24 @@
+# Prometheus 抓取配置（hrent-api）
+# 用法：docker run -p 9090:9090 \
+#         -v $(pwd)/deploy/prometheus:/etc/prometheus \
+#         prom/prometheus:v2.45.0
+# 注意：服务上下文路径是 /hrent，Actuator 出口在 /hrent/actuator/prometheus。
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: hrent-api
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: hrent-api
+    metrics_path: /hrent/actuator/prometheus
+    scheme: http
+    static_configs:
+      # 同机部署；跨机时把 targets 换成实际主机名/IP
+      - targets: ["host.docker.internal:8888"]
+        labels:
+          instance: hrent-api-8888

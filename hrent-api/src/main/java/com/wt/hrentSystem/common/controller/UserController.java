@@ -9,6 +9,7 @@ import com.wt.hrentSystem.common.service.MessageService;
 import com.wt.hrentSystem.common.service.UserService;
 import com.wt.hrentSystem.common.util.FileUpLoadUtils;
 import com.wt.hrentSystem.common.util.MD5Utils;
+import com.wt.hrentSystem.common.util.PasswordUtils;
 import com.wt.hrentSystem.common.util.TokenUtils;
 import com.wt.hrentSystem.common.util.UserUtils;
 import com.wt.hrentSystem.hrent.entity.ApplyView;
@@ -186,18 +187,33 @@ public class UserController {
             return new ResponseResult(ResponseCodeCanstants.FAILED,"没有该用户");
         }else{
             try {
-                queryUser.setPassword(MD5Utils.EncoderByMd5(user.getPassword()));
-                User queryUser2 = userService.getByEntity(queryUser);
-                if(queryUser2==null){
+                String rawPassword = user.getPassword();
+                String stored = queryUser1.getPassword();
+                boolean bcryptStored = PasswordUtils.ALGO_BCRYPT.equalsIgnoreCase(queryUser1.getPwdAlgo())
+                        || PasswordUtils.looksLikeBcrypt(stored);
+                boolean matched = bcryptStored
+                        ? PasswordUtils.matchesBcrypt(rawPassword, stored)
+                        : MD5Utils.EncoderByMd5(rawPassword).equalsIgnoreCase(stored);
+                if(!matched){
                     return new ResponseResult(ResponseCodeCanstants.FAILED,"用户名或者密码失败");
                 }
-                String token = TokenUtils.sign(queryUser2);
+                User t1 = userService.get("1");
+                if(!bcryptStored){
+                    // 双哈希：MD5 校验通过后静默升级为 BCrypt，失败不影响本次登录
+                    User upgrade = new User();
+                    upgrade.setId(queryUser1.getId());
+                    upgrade.setPassword(PasswordUtils.encodeBcrypt(rawPassword));
+                    upgrade.setPwdAlgo(PasswordUtils.ALGO_BCRYPT);
+                    upgrade.setUpdateBy(t1);
+                    userService.update(upgrade);
+                    queryUser1.setPassword(upgrade.getPassword());
+                    queryUser1.setPwdAlgo(PasswordUtils.ALGO_BCRYPT);
+                }
+                String token = TokenUtils.sign(queryUser1);
                 if(token!=null){
                     //登录成功修改用户信息，修改登录时间
-                    User t1 = userService.get("1");
-                    String id = queryUser2.getId();
                     User updateUser = new User();
-                    updateUser.setId(id);
+                    updateUser.setId(queryUser1.getId());
                     updateUser.setUpdateBy(t1);
                     userService.update(updateUser);
                     return new ResponseResult(ResponseCodeCanstants.SUCCESS,token,"登录成功");

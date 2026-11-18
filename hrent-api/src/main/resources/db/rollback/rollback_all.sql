@@ -13,6 +13,27 @@
 SET NAMES utf8mb4;
 
 -- ---------------------------------------------------------------------
+-- 0. 删除 V8 触发器（先删触发器，否则下面 DROP COLUMN 会被触发器引用挡住）
+-- ---------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_rent_bi;
+DROP TRIGGER IF EXISTS trg_rent_paid_bi;
+DROP TRIGGER IF EXISTS trg_rent_amount_bi;
+DROP TRIGGER IF EXISTS trg_rent_period_bi;
+DROP TRIGGER IF EXISTS trg_renting_status_bi;
+DROP TRIGGER IF EXISTS trg_renting_end_bu;
+DROP TRIGGER IF EXISTS trg_renting_end_bi;
+DROP TRIGGER IF EXISTS trg_renting_start_bu;
+DROP TRIGGER IF EXISTS trg_renting_start_bi;
+DROP TRIGGER IF EXISTS trg_renting_money_bu;
+DROP TRIGGER IF EXISTS trg_renting_money_bi;
+DROP TRIGGER IF EXISTS trg_apply_rent_bu;
+DROP TRIGGER IF EXISTS trg_apply_rent_bi;
+DROP TRIGGER IF EXISTS trg_house_resource_bu;
+DROP TRIGGER IF EXISTS trg_house_resource_bi;
+DROP TRIGGER IF EXISTS trg_house_renting_bi;
+DROP TRIGGER IF EXISTS trg_house_renting_bu;
+
+-- ---------------------------------------------------------------------
 -- 1. 删除 V6 新增表
 -- ---------------------------------------------------------------------
 DROP TABLE IF EXISTS ai_feedback;

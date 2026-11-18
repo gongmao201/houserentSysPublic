@@ -9,6 +9,7 @@
         <result property="name" column="name" jdbcType="VARCHAR"/>
         <result property="loginName" column="login_name" jdbcType="VARCHAR"/>
         <result property="password" column="password" jdbcType="VARCHAR"/>
+        <result property="pwdAlgo" column="pwd_algo" jdbcType="VARCHAR"/>
         <result property="email" column="email" jdbcType="VARCHAR"/>
         <result property="mobile" column="mobile" jdbcType="VARCHAR"/>
         <result property="pId" column="p_id" jdbcType="VARCHAR"/>
@@ -36,6 +37,7 @@
                name,
                login_name,
                password,
+               pwd_algo,
                email,
                mobile,
                p_id,
@@ -56,7 +58,7 @@
 <!--    查询单个数据-->
     <select id="get" resultMap="SysUserMap">
         select <include refid="userCols"></include>
-        from house_rent.sys_user a
+        from sys_user a
         where id = #{id}
           and del_flag = 0
     </select>
@@ -64,7 +66,7 @@
     <!--查询单个-->
     <select id="getByEntity" resultMap="SysUserMap">
         select <include refid="userCols"></include>
-        from house_rent.sys_user a
+        from sys_user a
         where
         del_flag = 0
         <if test="role != null and role != ''">
@@ -93,7 +95,7 @@
 <!--    查询所有-->
     <select id="findList" resultMap="SysUserMap">
         select <include refid="userCols"></include>
-        from house_rent.sys_user a
+        from sys_user a
         where del_flag = 0
         <if test="id != null and id != ''">
             and id = #{id}
@@ -140,7 +142,7 @@
 
     <select id="findUserByOpenid" resultMap="SysUserMap">
         select <include refid="userCols"></include>
-        from house_rent.sys_user a
+        from sys_user a
         where a.del_flag=0
         and a.openid=#{openId}
     </select>
@@ -148,12 +150,13 @@
 
 <!--    新增数据-->
     <insert id="insert" keyProperty="id" useGeneratedKeys="true">
-        insert into house_rent.sys_user(id,
+        insert into sys_user(id,
                                      role,
                                      role_str,
                                      name,
                                      login_name,
                                      password,
+                                     pwd_algo,
                                      email,
                                      mobile,
                                      p_id,
@@ -167,14 +170,14 @@
                                      update_time,
                                      remake,
                                      del_flag)
-        values (#{id},#{role},#{roleStr}, #{name}, #{loginName}, #{password}, #{email}, #{mobile},
+        values (#{id},#{role},#{roleStr}, #{name}, #{loginName}, #{password}, IFNULL(#{pwdAlgo},'md5'), #{email}, #{mobile},
                 #{pId},#{sex},#{birthday},#{openId},#{loginTime},
                 #{createBy.id}, #{createDate}, #{updateBy.id}, #{updateDate}, #{remake}, #{delFlag})
     </insert>
 
 <!--    通过主键修改数据-->
     <update id="update">
-        update house_rent.sys_user
+        update sys_user
         <set>
             <if test="role != null and role != ''">
                 role = #{role},
@@ -187,6 +190,9 @@
             </if>
             <if test="password != null and password != ''">
                 password = #{password},
+            </if>
+            <if test="pwdAlgo != null and pwdAlgo != ''">
+                pwd_algo = #{pwdAlgo},
             </if>
             <if test="email != null and email != ''">
                 email = #{email},
@@ -230,7 +236,7 @@
 
 <!--    删除数据，逻辑删除-->
     <update id="delete">
-        update house_rent.sys_user
+        update sys_user
         <set>
             del_flag = 1
         </set>

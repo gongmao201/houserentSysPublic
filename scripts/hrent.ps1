@@ -252,6 +252,9 @@ function Get-JvmArgs {
         }
     }
     if ($list.Count -eq 0) { $list += "-Dfile.encoding=UTF-8" }
+    # 时区固化：不依赖操作系统时区，Java 侧统一按北京时间解释/格式化 DATETIME
+    if (-not ($list -match '-Duser\.timezone')) { $list += "-Duser.timezone=Asia/Shanghai" }
+
     if ($script:JavaMajor -ge 9) {
         $list += "--add-opens"
         $list += "java.base/java.lang=ALL-UNNAMED"

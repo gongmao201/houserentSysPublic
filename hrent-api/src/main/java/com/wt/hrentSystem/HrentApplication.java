@@ -4,10 +4,12 @@ import com.wt.hrentSystem.common.util.NginxUtils;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.io.File;
 import java.io.IOException;
 
+@EnableScheduling
 @MapperScan("com.wt.hrentSystem.*.dao")
 @SpringBootApplication
 public class HrentApplication {

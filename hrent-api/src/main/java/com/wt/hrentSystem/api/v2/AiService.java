@@ -2,6 +2,7 @@ package com.wt.hrentSystem.api.v2;
 
 import com.wt.hrentSystem.ai.dao.AiFeedbackDao;
 import com.wt.hrentSystem.ai.entity.AiFeedback;
+import com.wt.hrentSystem.ai.llm.AiGateway;
 import com.wt.hrentSystem.api.dao.V2Mapper;
 import com.wt.hrentSystem.common.entity.User;
 import org.springframework.stereotype.Service;
@@ -10,6 +11,7 @@ import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -22,9 +24,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * AI 推荐 v2（docs/13 §4.6）。本期只落地 rule 模式：
- * 结构化条件抽取 → 参数化检索 → 加权打分 → 模板理由；模型不可用时仍返回 200。
- * 三级降级（local/deepseek/rule）待外部凭据就绪后接入，见待定 T-04。
+ * AI 推荐 v2（docs/13 §4.6、docs/00 §3.1.0 D18）。
+ * 管道：规则抽取 → 不足 3 字段时模型补意图（local→deepseek）→ 标签打分检索 →
+ * 模板理由 / SSE 理由增强；模型全挂仍 200，退化为纯规则。
  */
 @Service
 public class AiService {
@@ -47,6 +49,8 @@ public class AiService {
     private V2Mapper v2Mapper;
     @Resource
     private AiFeedbackDao aiFeedbackDao;
+    @Resource
+    private AiGateway aiGateway;
 
     public Map<String, Object> recommend(Map<String, Object> body) {
         Req.body(body);
@@ -89,6 +93,31 @@ public class AiService {
             }
         }
 
+        // 规则命中不足 3 个字段才调模型；模型失败继续用规则结果，绝不 500
+        String source = "rule";
+        if (query != null && filledFieldCount(region, budgetMax, rooms, tags) < 3) {
+            AiGateway.IntentOutcome outcome = aiGateway.extractIntent(query);
+            if (outcome.fromModel()) {
+                Map<String, Object> extra = outcome.getIntent();
+                if (region == null && extra.get("region") != null) {
+                    region = String.valueOf(extra.get("region"));
+                }
+                if (budgetMax == null && extra.get("budgetMax") != null) {
+                    budgetMax = ((Number) extra.get("budgetMax")).longValue();
+                }
+                if (rooms == null && extra.get("rooms") != null) {
+                    rooms = ((Number) extra.get("rooms")).intValue();
+                }
+                Object modelTags = extra.get("tags");
+                if (modelTags instanceof List) {
+                    for (Object tag : (List<?>) modelTags) {
+                        addTag(tags, String.valueOf(tag));
+                    }
+                }
+                source = outcome.getProvider();
+            }
+        }
+
         Set<String> keywords = new LinkedHashSet<>();
         for (String tag : tags) {
             keywords.add(TAG_WORDS.containsKey(tag) ? TAG_WORDS.get(tag) : tag);
@@ -122,31 +151,76 @@ public class AiService {
         intent.put("budgetMax", budgetMax);
         intent.put("rooms", rooms);
         intent.put("tags", tags);
-        intent.put("source", "rule");
+        intent.put("source", source);
 
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("mode", "rule");
+        data.put("mode", "rule".equals(source) ? "rule" : "llm");
         data.put("intent", intent);
         data.put("list", list);
         data.put("total", total);
         return resultWithMessage(data, message);
     }
 
-    /**理由补全：LLM 未接入时返回模板文案（仍 200，前端可直接展示） */
+    /**
+     * 理由补全：先给模板，再尝试 local→deepseek 批量增强；模型全挂时模板不变。
+     * 请求内最多 20 个 houseId，模型一次批处理，避免 N 次超时串联。
+     */
     public Map<String, Object> reason(Map<String, Object> body) {
         Req.body(body);
         List<String> ids = Req.strList(body, "houseIds", 20);
+        List<Map<String, Object>> items = templateReasonItems(ids);
+        AiGateway.ReasonOutcome outcome = reasonOutcome(ids);
+        if (!outcome.getReasons().isEmpty()) {
+            for (Map<String, Object> item : items) {
+                String id = String.valueOf(item.get("houseId"));
+                String enhanced = outcome.getReasons().get(id);
+                if (enhanced != null) {
+                    item.put("reason", enhanced);
+                    item.put("source", outcome.getProvider());
+                }
+            }
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("items", items);
+        data.put("mode", outcome.getReasons().isEmpty() ? "rule" : "llm");
+        data.put("source", outcome.getProvider());
+        return data;
+    }
+
+    /**模板理由，SSE 首帧用：不调模型，先让前端有内容可展示 */
+    public List<Map<String, Object>> templateReasonItems(List<String> ids) {
         List<Map<String, Object>> items = new ArrayList<>();
         for (String id : ids) {
             Map<String, Object> brief = v2Mapper.getHouseBrief(id);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("houseId", id);
             item.put("reason", brief == null ? "房源信息暂不可用" : templateReason(brief, null, null, null, null));
+            item.put("source", "rule");
             items.add(item);
         }
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("items", items);
-        return data;
+        return items;
+    }
+
+    /**调用降级链批量生成理由，SSE 增强与 /reason 共用同一入口 */
+    public AiGateway.ReasonOutcome reasonOutcome(List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return new AiGateway.ReasonOutcome(Collections.emptyMap(), "rule");
+        }
+        List<Map<String, Object>> briefs = new ArrayList<>();
+        for (String id : ids) {
+            Map<String, Object> brief = v2Mapper.getHouseBrief(id);
+            if (brief == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("houseId", id);
+            item.put("title", Rows.str(brief.get("title")));
+            item.put("region", Rows.str(brief.get("region")));
+            item.put("houseType", Rows.str(brief.get("houseType")));
+            item.put("priceFen", Rows.lng(brief.get("priceFen")));
+            briefs.add(item);
+        }
+        return aiGateway.reasons(briefs);
     }
 
     public Map<String, Object> feedback(Map<String, Object> body, User user) {
@@ -158,6 +232,7 @@ public class AiService {
             throw ApiException.bad("position 必须在 1~10 之间");
         }
         String query = Req.str(body, "query", false, 500);
+        String mode = Req.oneOf(body, "mode", false, "rule", "llm");
         AiFeedback fb = new AiFeedback();
         fb.setId(UUID.randomUUID().toString().replace("-", ""));
         fb.setUserId(user.getId());
@@ -165,7 +240,7 @@ public class AiService {
         fb.setHouseId(houseId);
         fb.setAction(action);
         fb.setPosition(position);
-        fb.setMode("rule");
+        fb.setMode(mode == null ? "rule" : mode);
         fb.setCreateTime(new Date());
         aiFeedbackDao.insert(fb);
         Map<String, Object> data = new LinkedHashMap<>();
@@ -234,6 +309,22 @@ public class AiService {
     public static String takeMessage(Map<String, Object> data) {
         Object m = data.remove("_message");
         return m == null ? "ok" : String.valueOf(m);
+    }
+
+    /**docs/00 §3.1：规则命中 ≥3 字段直接检索，不调模型；标签按每项计数 */
+    private int filledFieldCount(String region, Long budgetMax, Integer rooms, List<String> tags) {
+        int count = 0;
+        if (region != null && !region.isEmpty()) {
+            count++;
+        }
+        if (budgetMax != null) {
+            count++;
+        }
+        if (rooms != null) {
+            count++;
+        }
+        count += tags == null ? 0 : tags.size();
+        return count;
     }
 
     private void addTag(List<String> tags, String tag) {
