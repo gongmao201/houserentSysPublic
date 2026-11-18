@@ -2,6 +2,10 @@ package com.wt.hrentSystem;
 
 import com.wt.hrentSystem.common.entity.User;
 import com.wt.hrentSystem.common.util.TokenUtils;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -19,11 +23,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * JWT（jjwt 0.11.5）签发/解析回归：不依赖 Spring 上下文。
+ * 覆盖：正常往返、被篡改令牌、过期配置、短密钥派生、空密钥兜底。
  * 覆盖：正常往返、被篡改令牌、过期配置、短密钥派生、空密钥兜底、双验期（老 token 兼容 7 天）。
  */
 class TokenUtilsTest {
 
     private static final String SECRET_32 = "0123456789abcdef0123456789abcdef";
+
+    @AfterEach
+    void reset() {
+        TokenUtils.configure(null, 7);
     private static final String LEGACY_32 = "fedcba9876543210fedcba9876543210";
     private static final long DAY = 24L * 60L * 60L * 1000L;
 
@@ -47,6 +56,7 @@ class TokenUtilsTest {
     void tamperedTokenIsRejected() {
         TokenUtils.configure(SECRET_32, 7);
         String token = TokenUtils.sign(user("7"));
+        String tampered = token.substring(0, token.length() - 2) + "xx";
         // 只改签名末两位可能解码出完全相同的字节（Base64 末位是填充位），测试会偶发假通过；
         // 这里改 payload 首字符，claims 必然变化，签名必然对不上。
         String[] parts = token.split("\\.");

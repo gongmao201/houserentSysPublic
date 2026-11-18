@@ -33,6 +33,11 @@ public class TokenUtils {
     /** 未注入配置时的开发兜底（不安全，仅用于工具类脱离 Spring 的单测/离线调用） */
     public static final String FALLBACK_SECRET = "<SET_VIA_ENV_JWT_SECRET>";
 
+    private static final long DEFAULT_EXPIRE_DAYS = 7L;
+
+    private static volatile String secret;
+
+    private static volatile long expireDays = DEFAULT_EXPIRE_DAYS;
     /** 新签发 token 的版本标记；老 token 没有该 claim */
     private static final String CLAIM_VERSION = "vt";
     private static final int TOKEN_VERSION = 2;
@@ -50,12 +55,27 @@ public class TokenUtils {
     }
 
     /**
+     * 由 Spring 容器调用，注入解析后的配置。
      * 由 Spring 容器调用，注入解析后的配置（兼容旧调用方）。
      *
      * @param resolvedSecret     token.secret 的最终值（可能为空，表示未配置）
      * @param resolvedExpireDays token.expire-days，非法值回退 7 天
      */
     public static void configure(String resolvedSecret, long resolvedExpireDays) {
+        secret = (resolvedSecret == null || resolvedSecret.trim().isEmpty())
+                ? null
+                : resolvedSecret.trim();
+        if (resolvedExpireDays > 0) {
+            expireDays = resolvedExpireDays;
+        }
+    }
+
+    /** 当前生效的密钥原文（不含派生） */
+    public static String secret() {
+        String s = secret;
+        return (s == null || s.isEmpty()) ? FALLBACK_SECRET : s;
+    }
+
         configure(resolvedSecret, resolvedExpireDays, null, DEFAULT_LEGACY_GRACE_DAYS);
     }
 
@@ -113,6 +133,7 @@ public class TokenUtils {
                 .setSubject(user.getId())
                 .setIssuedAt(now)
                 .setExpiration(new Date(now.getTime() + expireMillis()))
+                .signWith(key(), SignatureAlgorithm.HS256)
                 .claim(CLAIM_VERSION, TOKEN_VERSION)
                 .signWith(key(secretKeySource()), SignatureAlgorithm.HS256)
                 .compact();
@@ -127,6 +148,7 @@ public class TokenUtils {
     }
 
     /**
+     * token 剩余有效秒数（用于写 Redis 吊销名单的 TTL）；无法解析时回退配置的有效期
      * token 剩余有效秒数（用于写 Redis 吊销名单的 TTL）；
      * 老 token 宽限期内返回剩余宽限秒数，无法解析时回退配置的有效期
      */
@@ -136,6 +158,7 @@ public class TokenUtils {
             return expireMillis() / 1000L;
         }
         long remaining = (claims.getExpiration().getTime() - System.currentTimeMillis()) / 1000L;
+        return remaining > 0 ? remaining : 0L;
         if (remaining > 0) {
             return remaining;
         }
@@ -153,6 +176,14 @@ public class TokenUtils {
 
     private static Claims parse(String token) {
         if (token == null || token.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Jwts.parserBuilder()
+                    .setSigningKey(key())
+                    .build()
+                    .parseClaimsJws(token.trim())
+                    .getBody();
             return null;
         }
         String t = token.trim();
@@ -226,6 +257,7 @@ public class TokenUtils {
             byte[] raw = Base64.getUrlDecoder().decode(parts[1]);
             return JSON.parseObject(new String(raw, StandardCharsets.UTF_8));
         } catch (Exception e) {
+            // 签名不符 / 过期 / 格式错误统一视为无效令牌
             return null;
         }
     }
@@ -246,6 +278,9 @@ public class TokenUtils {
         return expireDays * 24L * 60L * 60L * 1000L;
     }
 
+    /** HS256 密钥：原文不足 32 字节时用 SHA-256 派生，保证密钥强度 */
+    private static SecretKey key() {
+        byte[] raw = secret().getBytes(StandardCharsets.UTF_8);
     private static long graceMillis() {
         return legacyGraceDays * 24L * 60L * 60L * 1000L;
     }

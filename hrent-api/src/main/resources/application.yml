@@ -45,6 +45,7 @@ spring:
     timeout: 2s
     connect-timeout: 2s
 
+  # Flyway：V1–V6 顺序执行；老库非空时按 baseline 处理
   # Flyway：V1–V9 顺序执行；老库非空时按 baseline 处理
   # baseline-version=0：空库/干净老库都从 V1 开始（V1 全是 IF NOT EXISTS）
   # 已手动跑过 V6 的库改成 6；半迁移库禁止自动，先恢复或回滚

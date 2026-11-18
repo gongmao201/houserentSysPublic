@@ -21,6 +21,8 @@ public class TokenSettings {
     private static final Logger log = LoggerFactory.getLogger(TokenSettings.class);
 
     public TokenSettings(@Value("${token.secret:}") String secret,
+                         @Value("${token.expire-days:7}") long expireDays) {
+        TokenUtils.configure(secret, expireDays);
                          @Value("${token.expire-days:7}") long expireDays,
                          @Value("${token.legacy-secret:}") String legacySecret,
                          @Value("${token.legacy-grace-days:7}") long legacyGraceDays) {
@@ -30,6 +32,7 @@ public class TokenSettings {
         } else if (secret.trim().length() < 32) {
             log.warn("token.secret 长度不足 32 字节，已用 SHA-256 派生为 HS256 密钥；建议改为 32 字节以上随机值");
         }
+        log.info("JWT 配置已加载：expireDays={}", TokenUtils.expireDays());
         log.info("JWT 配置已加载：expireDays={}，老 token 宽限 {} 天，legacySecret={}",
                 TokenUtils.expireDays(), TokenUtils.legacyGraceDays(),
                 legacySecret == null || legacySecret.trim().isEmpty() ? "未配置（回退主密钥）" : "已配置");
