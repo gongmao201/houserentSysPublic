@@ -43,7 +43,7 @@
           <el-form-item label="对象 ID"><el-input v-model="reviewForm.targetId"></el-input></el-form-item>
           <el-form-item label="评分"><el-input-number v-model="reviewForm.score" :min="1" :max="5" :step="0.5"></el-input-number></el-form-item>
           <el-form-item label="评价内容"><el-input type="textarea" v-model="reviewForm.content" :maxlength="500"></el-input></el-form-item>
-          <el-form-item><el-button type="primary" @click="submitReview">提交</el-button></el-form-item>
+          <el-form-item><el-button type="primary" :loading="submitting" @click="submitReview">提交</el-button></el-form-item>
         </el-form>
       </el-tab-pane>
 
@@ -56,7 +56,7 @@
         </el-form>
       </el-tab-pane>
 
-      <el-tab-pane label="平台核验（管理员）">
+      <el-tab-pane v-if="isAdmin" label="平台核验（管理员）">
         <el-form :inline="true" size="small">
           <el-form-item label="房源 ID"><el-input v-model="auditHouseId"></el-input></el-form-item>
         </el-form>
@@ -71,12 +71,14 @@
 
 <script>
 import { v2 } from '../../network/v2';
+import { onErr } from './common';
 
 export default {
   name: 'RatingManage',
   data() {
     return {
       loading: false,
+      submitting: false,
       targetType: 'HOUSE',
       targetId: '',
       summary: null,
@@ -93,12 +95,22 @@ export default {
       }
     };
   },
+  computed: {
+    //平台核验仅管理员可见；沿用登录时写入 localStorage 的用户信息（后端 isAdmin：role == 2）
+    isAdmin() {
+      try {
+        const user = JSON.parse(localStorage.getItem('loginData') || '{}');
+        return Number(user && user.role) === 2;
+      } catch (e) { return false; }
+    }
+  },
   methods: {
     show(v) { return (v === null || v === undefined) ? '—' : Number(v).toFixed(1); },
     formatDimensions(d) {
       const keys = Object.keys(d || {});
       if (!keys.length) return '暂无维度分';
-      return keys.map(function (k) { return k + ' ' + d[k]; }).join(' / ');
+      const labels = this.auditLabels;
+      return keys.map(function (k) { return (labels[k] || k) + ' ' + d[k]; }).join(' / ');
     },
     loadSummary() {
       if (!this.targetId) { this.$message.warning('请先填写对象 ID'); return; }
@@ -110,12 +122,13 @@ export default {
       }.bind(this)).catch(this.onError).then(function () { this.loading = false; }.bind(this));
     },
     submitReview() {
+      this.submitting = true;
       v2.submitReview(this.reviewForm).then(function (res) {
         this.$message.success('评价已提交，展示分 ' + this.show(res.displayScore));
         this.targetType = this.reviewForm.targetType;
         this.targetId = this.reviewForm.targetId;
         this.loadSummary();
-      }.bind(this)).catch(this.onError);
+      }.bind(this)).catch(this.onError).then(function () { this.submitting = false; }.bind(this));
     },
     reply() {
       if (!this.reviewId || !this.opContent) { this.$message.warning('请填写评价 ID 与回复内容'); return; }
@@ -125,7 +138,11 @@ export default {
     appeal() {
       if (!this.reviewId || !this.opContent) { this.$message.warning('请填写评价 ID 与申诉理由'); return; }
       v2.appealReview(this.reviewId, { reason: this.opContent })
-        .then(function () { this.$message.success('申诉已提交，期间不计入均分'); this.loadSummary(); }.bind(this))
+        .then(function () {
+          this.$message.success('申诉已提交，期间不计入均分');
+          //查询区没填对象 ID 时 loadSummary 会先弹"请先填写对象 ID"误导，有值才刷新
+          if (this.targetId) { this.loadSummary(); }
+        }.bind(this))
         .catch(this.onError);
     },
     submitAudit() {
@@ -137,11 +154,7 @@ export default {
         .then(function (res) { this.$message.success('核验分 ' + this.show(res.officialScore)); }.bind(this))
         .catch(this.onError);
     },
-    onError(err) {
-      console.error('[v2 rating]', err);
-      this.$message.error((err && err.message ? err.message : '请求失败') +
-        (err && err.traceId ? '（traceId: ' + err.traceId + '）' : ''));
-    }
+    onError: function (err) { onErr(this, err, 'rating'); }
   }
 };
 </script>

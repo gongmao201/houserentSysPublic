@@ -233,6 +233,10 @@ public class AiService {
         }
         String query = Req.str(body, "query", false, 500);
         String mode = Req.oneOf(body, "mode", false, "rule", "llm");
+        // 埋点同样要守住外键语义：房源不存在/已删除时入库会污染推荐效果统计
+        if (v2Mapper.getHouseBrief(houseId) == null) {
+            throw ApiException.unprocessable("房源不存在或已下架");
+        }
         AiFeedback fb = new AiFeedback();
         fb.setId(UUID.randomUUID().toString().replace("-", ""));
         fb.setUserId(user.getId());

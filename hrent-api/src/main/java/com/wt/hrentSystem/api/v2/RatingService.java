@@ -78,6 +78,22 @@ public class RatingService {
             throw ApiException.bad("score 必须在 1.0~5.0 之间且最多 1 位小数");
         }
         Map<String, Object> dimensions = Req.obj(body, "dimensions");
+        // 维度键必须是平台核验白名单，值必须是 1~5 的数字：
+        // 否则任意 JSON 都能入库并混进 dimensionAverages 参与展示
+        if (!dimensions.isEmpty()) {
+            for (Map.Entry<String, Object> e : dimensions.entrySet()) {
+                if (!isAuditKey(e.getKey())) {
+                    throw ApiException.bad("dimensions 含未知维度：" + e.getKey());
+                }
+                if (!(e.getValue() instanceof Number)) {
+                    throw ApiException.bad("dimensions." + e.getKey() + " 必须是数字");
+                }
+                BigDecimal v = new BigDecimal(e.getValue().toString());
+                if (v.compareTo(BigDecimal.ONE) < 0 || v.compareTo(new BigDecimal("5")) > 0) {
+                    throw ApiException.bad("dimensions." + e.getKey() + " 必须在 1~5 之间");
+                }
+            }
+        }
         String content = Req.str(body, "content", false, 500);
         List<String> images = Req.strList(body, "images", 3);
 
@@ -144,6 +160,11 @@ public class RatingService {
         return result;
     }
 
+    /**
+     * 汇总读取：缓存表（official/user/display）与实时重算（dimensions/reviews）
+     * 必须在同一个事务快照里，否则并发写入时会返回互相矛盾的字段。
+     */
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> summary(String targetType, String targetId) {
         RatingSummary s = ratingSummaryDao.getById(targetType, targetId);
         List<Review> all = reviewDao.findByTarget(targetType, targetId);
@@ -173,17 +194,16 @@ public class RatingService {
         if (review.getReply() != null && !review.getReply().trim().isEmpty()) {
             throw ApiException.conflict("每条评价只能回复一次");
         }
-        Review patch = new Review();
-        patch.setId(id);
-        patch.setReply(content);
-        patch.setReplyAt(new Date());
-        patch.setStatus("PUBLISHED");
-        patch.preUpdate();
-        reviewDao.update(patch);
+        Date replyAt = new Date();
+        // 原子写：SQL 带 reply 为空的条件，并发第二次回复影响行数为 0
+        int affected = v2Mapper.replyReview(id, content, replyAt);
+        if (affected == 0) {
+            throw ApiException.conflict("每条评价只能回复一次");
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("reviewId", id);
         result.put("reply", content);
-        result.put("replyAt", V2Time.iso(patch.getReplyAt()));
+        result.put("replyAt", V2Time.iso(replyAt));
         return result;
     }
 
@@ -398,6 +418,15 @@ public class RatingService {
     private String ownerOf(Review review) {        return "LANDLORD".equals(review.getTargetType())
                 ? review.getTargetId()
                 : v2Mapper.findLandlordIdByHouseId(review.getTargetId());
+    }
+
+    private static boolean isAuditKey(String key) {
+        for (String k : AUDIT_KEYS) {
+            if (k.equals(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<Review> published(List<Review> all) {

@@ -39,6 +39,8 @@ public class BillService {
     @Resource
     private BillNoticeService billNoticeService;
 
+    /**账单主记录与 RENT 明细必须同生共死：任一步失败都回滚，避免留下无明细账单 */
+    @Transactional
     public Map<String, Object> generate(Map<String, Object> body, User user) {
         Req.body(body);
         String rentingId = Req.str(body, "rentingId", true, 64);
@@ -49,6 +51,12 @@ public class BillService {
             throw ApiException.notFound("租约不存在");
         }
         v2Context.assertOwner(user, Rows.str(renting.get("landlordId")));
+        // 只允许生效中(status=0)的租约生成账单；已退租/已过期租约会被前端误当在租继续收费
+        int leaseStatus = Rows.intOr(renting.get("statusCode"), -1);
+        if (leaseStatus != 0) {
+            throw ApiException.unprocessable("仅生效中的租约可生成账单（当前 "
+                    + LeaseService.statusName(leaseStatus) + "）");
+        }
         return createBill(renting, ym.toString(), user.getId());
     }
 
@@ -249,7 +257,8 @@ public class BillService {
             }
         }
         long amount = Rows.longOr(row.get("amountFen"), 0L);
-        if (!itemVos.isEmpty() && sum != amount) {
+        // 明细缺失（应收>0 却查不到明细）与金额不符一样属于数据错误，不能静默放行
+        if ((itemVos.isEmpty() && amount > 0) || (!itemVos.isEmpty() && sum != amount)) {
             // 数据错误绝不静默：记日志 + 返回 500，让对账问题立刻暴露
             log.error("账单明细与应收不等 billId=" + id + " amountFen=" + amount + " itemSum=" + sum);
             throw new ApiException(ApiCodes.SERVER_ERROR, "账单数据异常，请联系管理员核对");

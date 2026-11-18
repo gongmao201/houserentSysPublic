@@ -7,7 +7,7 @@
           <el-option v-for="s in statuses" :label="s.label" :value="s.value" :key="s.value"></el-option>
         </el-select>
       </el-form-item>
-      <el-button type="primary" size="small" :loading="loading" @click="loadList">查询</el-button>
+      <el-button type="primary" size="small" :loading="loading" @click="search">查询</el-button>
       <el-button size="small" @click="generateVisible = true">生成账单</el-button>
       <el-button size="small" @click="loadPending">待确认队列</el-button>
     </el-form>
@@ -34,7 +34,7 @@
       </el-table-column>
     </el-table>
 
-    <el-pagination style="margin-top: 12px" background layout="total, prev, pager, next"
+    <el-pagination v-if="!pendingView" style="margin-top: 12px" background layout="total, prev, pager, next"
                    :total="page.count" :page-size="page.pageSize" :current-page="page.pageNo"
                    @current-change="onPageChange"></el-pagination>
     <el-empty v-if="!loading && list.length === 0" description="暂无账单"></el-empty>
@@ -56,7 +56,7 @@
         <el-form-item label="租约 ID"><el-input v-model="genForm.rentingId"></el-input></el-form-item>
         <el-form-item label="账期"><el-input v-model="genForm.period" placeholder="2026-11"></el-input></el-form-item>
       </el-form>
-      <div slot="footer"><el-button @click="generateVisible = false">取消</el-button><el-button type="primary" @click="generate">生成</el-button></div>
+      <div slot="footer"><el-button @click="generateVisible = false">取消</el-button><el-button type="primary" :loading="generating" @click="generate">生成</el-button></div>
     </el-dialog>
 
     <el-dialog title="标记已缴（线下转账）" :visible.sync="markVisible" width="460px">
@@ -71,19 +71,23 @@
         </el-form-item>
         <el-form-item label="凭证路径"><el-input v-model="markForm.voucherPic" placeholder="/images/xxx.jpg"></el-input></el-form-item>
       </el-form>
-      <div slot="footer"><el-button @click="markVisible = false">取消</el-button><el-button type="primary" @click="markPaid">提交</el-button></div>
+      <div slot="footer"><el-button @click="markVisible = false">取消</el-button><el-button type="primary" :loading="marking" @click="markPaid">提交</el-button></div>
     </el-dialog>
   </div>
 </template>
 
 <script>
 import { v2, fen2yuan, yuan2fen } from '../../network/v2';
+import { onErr, enumLabel, fetchList } from './common';
 
 export default {
   name: 'BillManage',
   data() {
     return {
       loading: false,
+      generating: false,
+      marking: false,
+      pendingView: false,
       period: '',
       status: '',
       list: [],
@@ -100,17 +104,20 @@ export default {
   mounted() { this.loadList(); },
   methods: {
     fen2yuan: fen2yuan,
+    //查询入口：回到第 1 页，避免停在第 2+ 页时筛出空列表
+    search() {
+      this.page.pageNo = 1;
+      this.loadList();
+    },
     loadList() {
-      this.loading = true;
+      this.pendingView = false;
       const params = { pageNo: this.page.pageNo, pageSize: this.page.pageSize };
       if (this.period) { params.period = this.period; }
       if (this.status) { params.status = this.status; }
-      v2.myBills(params).then(function (res) {
-        this.list = res.list || [];
-        this.page.count = res.count || 0;
-      }.bind(this)).catch(this.onError).then(function () { this.loading = false; }.bind(this));
+      fetchList(this, v2.myBills, params);
     },
     loadPending() {
+      this.pendingView = true;
       this.loading = true;
       v2.pendingBills({ pageNo: 1, pageSize: 50 }).then(function (res) {
         this.list = res.list || [];
@@ -118,7 +125,12 @@ export default {
         this.$message.info('待确认 ' + this.page.count + ' 条');
       }.bind(this)).catch(this.onError).then(function () { this.loading = false; }.bind(this));
     },
-    onPageChange(p) { this.page.pageNo = p; this.loadList(); },
+    onPageChange(p) {
+      //待确认视图固定拉第 1 页，隐藏的分页条即使触发也不切回普通列表
+      if (this.pendingView) { return; }
+      this.page.pageNo = p;
+      this.loadList();
+    },
     canMark(row) { return row.billStatus === 'UNPAID' || row.billStatus === 'OVERDUE'; },
     openDetail(id) {
       v2.billDetail(id).then(function (res) { this.detail = res; this.detailVisible = true; }.bind(this)).catch(this.onError);
@@ -129,22 +141,24 @@ export default {
     },
     generate() {
       if (!this.genForm.rentingId || !this.genForm.period) { this.$message.warning('租约 ID 与账期必填'); return; }
+      this.generating = true;
       v2.generateBill(this.genForm).then(function (res) {
         this.$message.success('账单已生成，应收 ¥ ' + fen2yuan(res.amountFen));
         this.generateVisible = false;
         this.loadList();
-      }.bind(this)).catch(this.onError);
+      }.bind(this)).catch(this.onError).then(function () { this.generating = false; }.bind(this));
     },
     markPaid() {
       let paidFen;
       try { paidFen = yuan2fen(this.markForm.yuan); } catch (e) { this.$message.error(e.message); return; }
+      this.marking = true;
       v2.markPaid(this.markForm.id, {
         paidFen: paidFen, channel: this.markForm.channel, voucherPic: this.markForm.voucherPic || null
       }).then(function () {
         this.$message.success('已标记，等待房东确认到账');
         this.markVisible = false;
         this.loadList();
-      }.bind(this)).catch(this.onError);
+      }.bind(this)).catch(this.onError).then(function () { this.marking = false; }.bind(this));
     },
     confirm(id) {
       v2.confirmBill(id).then(function (res) {
@@ -152,21 +166,14 @@ export default {
         this.loadList();
       }.bind(this)).catch(this.onError);
     },
-    statusLabel(s) {
-      const hit = this.statuses.filter(function (x) { return x.value === s; });
-      return hit.length ? hit[0].label : s;
-    },
+    statusLabel(s) { return enumLabel(this.statuses, s); },
     tagType(s) {
       if (s === 'OVERDUE') return 'danger';
       if (s === 'PAID') return 'success';
       if (s === 'MARKED') return 'warning';
       return '';
     },
-    onError(err) {
-      console.error('[v2 bill]', err);
-      this.$message.error((err && err.message ? err.message : '请求失败') +
-        (err && err.traceId ? '（traceId: ' + err.traceId + '）' : ''));
-    }
+    onError: function (err) { onErr(this, err, 'bill'); }
   }
 };
 </script>

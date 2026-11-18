@@ -32,14 +32,23 @@ WorkingDirectory=/opt/hrent/hrent-api
 # 数据库口令、JWT 密钥等敏感配置（文件内为 KEY=VALUE，权限 600）
 EnvironmentFile=/opt/hrent/.env
 
+# .env 用的是与 start.sh/start.cmd 相同的 DB_* 键名，systemd 不会自动改名，
+# 必须在这里显式映射成 Spring Boot 的 SPRING_DATASOURCE_*；
+# 不映射的话 .env 里填的口令会被静默忽略，回退到 application.yml 的默认账密。
+# （TOKEN_SECRET / WECHAT_APP_ID 等可被 Spring relaxed binding 直接识别，无需映射）
+Environment=SPRING_DATASOURCE_URL=${DB_URL}
+Environment=SPRING_DATASOURCE_USERNAME=${DB_USERNAME}
+Environment=SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD}
+
 # JDK 8 请删掉两行 --add-opens；JDK 9+ 保留（部分反射库需要）
+# 端口取自 .env 的 HRENT_PORT（.env.example 已提供默认 8888），不要在此硬编码
 ExecStart=/usr/bin/java \
     -Xms256m -Xmx512m \
     -Dfile.encoding=UTF-8 \
     --add-opens java.base/java.lang=ALL-UNNAMED \
     --add-opens java.base/java.math=ALL-UNNAMED \
     -jar /opt/hrent/hrent-api/target/hrent-0.0.1-SNAPSHOT.jar \
-    --server.port=8888
+    --server.port=${HRENT_PORT}
 
 # Spring Boot 收到 SIGTERM 后优雅关闭，退出码 143 视为正常
 SuccessExitStatus=143

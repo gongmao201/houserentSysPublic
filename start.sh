@@ -45,15 +45,18 @@ WITH_TESTS=0
 FOLLOW=0
 ENV_FILE="$ROOT_DIR/.env"
 
-# 业务配置默认值（会被 .env / 系统环境变量覆盖）
-HRENT_PORT=""
-DB_URL=""
-DB_USERNAME=""
-DB_PASSWORD=""
-TOKEN_SECRET=""
-WECHAT_APP_ID=""
-WECHAT_APP_SECRET=""
-JAVA_OPTS=""
+# 业务配置：只在「未设置或为空」时才用空值兜底，不无条件赋空——
+# 否则会把 CI/容器/用户 shell 里继承来的 HRENT_PORT、DB_PASSWORD、JAVA_OPTS
+# 直接抹掉（与 .env.example「已存在的系统环境变量优先」约定一致）。
+# .env 解析（load_env_file）同样只补缺失项，两处配合后：继承值 > .env > 空。
+: "${HRENT_PORT:=}"
+: "${DB_URL:=}"
+: "${DB_USERNAME:=}"
+: "${DB_PASSWORD:=}"
+: "${TOKEN_SECRET:=}"
+: "${WECHAT_APP_ID:=}"
+: "${WECHAT_APP_SECRET:=}"
+: "${JAVA_OPTS:=}"
 
 # ---------------------------------------------------------------------------
 # 输出
@@ -125,13 +128,20 @@ load_env_file() {
         case "$line" in ''|'#'*) continue ;; esac
         case "$line" in *=*) : ;; *) continue ;; esac
         key="${line%%=*}"; val="${line#*=}"
-        key="$(printf '%s' "$key" | tr -d '[:space:]')"
+        # 首尾 trim 键名（只去两端空白，保留键内字符交给下方合法性检查判定），
+        # 不能用 tr -d '[:space:]'——它会把 "FOO BAR" 悄悄拼成 FOOBAR。
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key%"${key##*[![:space:]]}"}"
         case "$key" in ''|*[!A-Za-z0-9_]*) continue ;; esac     # 非法键名跳过
         case "$val" in                                          # 去掉成对引号
             \"*\") val="${val#\"}"; val="${val%\"}" ;;
             \'*\') val="${val#\'}"; val="${val%\'}" ;;
         esac
-        export "$key=$val"
+        # 已存在的系统环境变量优先（见 .env.example）：只在未设置/为空时补，
+        # 与 scripts\hrent.ps1 的 Import-EnvFile 行为保持一致。
+        if [ -z "${!key:-}" ]; then
+            export "$key=$val"
+        fi
     done < "$file"
 }
 
@@ -170,10 +180,17 @@ detect_java() {
 
 build_jvm_args() {
     JVM_ARGS=()
+    # 按 IFS 空白安全分词：裸 `for opt in ${JAVA_OPTS:-}` 会对值做 glob 展开，
+    # 里面带 * ? [ ] 会被展开成当前目录的文件名列表，JVM 参数全乱。
+    # 先 local -a 初始化为空数组，保证 bash 3.2 + set -u 下展开不报 unbound。
+    local -a opts=()
     local opt
-    for opt in ${JAVA_OPTS:-}; do
-        JVM_ARGS+=("$opt")
-    done
+    IFS=$' \t\n' read -r -a opts <<< "${JAVA_OPTS:-}"
+    if [ ${#opts[@]} -gt 0 ]; then
+        for opt in "${opts[@]}"; do
+            JVM_ARGS+=("$opt")
+        done
+    fi
     if [ ${#JVM_ARGS[@]} -eq 0 ]; then
         JVM_ARGS+=("-Dfile.encoding=UTF-8")
     fi
@@ -214,9 +231,46 @@ is_java_process() {
     return $?
 }
 
-# 找到本项目 jar 的进程 PID（jps 精确匹配优先，端口反查仅作兜底且必须校验进程名）
+# PID 是否确实是本项目 jar 的进程（只认命令行，与 ps1 的 Test-AppPidIsOurs 同口径）。
+# PID 会被系统复用到别的 java 进程上，仅凭「进程活着 / 名字像 java」会认错进程；
+# 取不到命令行（Git Bash 无 /proc、ps 不认 Windows PID）时不放行，
+# 交给 find_app_pid 里的 jps / 端口反查继续兜底。
+app_pid_is_ours() {
+    local pid="$1" cmd=""
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    if [ -r "/proc/$pid/cmdline" ]; then
+        cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    else
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    fi
+    [ -n "$cmd" ] || return 1
+    case "$cmd" in
+        *hrent-0.0.1-SNAPSHOT.jar*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# 找到本项目 jar 的进程 PID（先信 PID 文件并校验命令行，其次 jps 精确匹配，
+# 最后端口反查兜底——三条路都必须确认是本项目的 jar）
 find_app_pid() {
     local jps_bin="" found=""
+    # PID 文件优先：写入后 stop/status/start 真正读它（否则文件形同虚设）。
+    # 必须过 app_pid_is_ours 这一关——PID 复用后只看 kill -0 会认错进程。
+    if [ -s "$PID_FILE" ]; then
+        local file_pid=""
+        file_pid="$(head -n 1 "$PID_FILE" 2>/dev/null || true)"
+        file_pid="${file_pid#"${file_pid%%[![:space:]]*}"}"
+        file_pid="${file_pid%"${file_pid##*[![:space:]]}"}"
+        case "$file_pid" in
+            ''|*[!0-9]*) : ;;
+            *)
+                if app_pid_is_ours "$file_pid"; then
+                    printf '%s' "$file_pid"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
     if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/jps" ]; then
         jps_bin="$JAVA_HOME/bin/jps"
     elif [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/jps.exe" ]; then
@@ -225,7 +279,9 @@ find_app_pid() {
         jps_bin="$(command -v jps)"
     fi
     if [ -n "$jps_bin" ]; then
-        found="$("$jps_bin" -l 2>/dev/null | awk '/hrent-0\.0\.1-SNAPSHOT\.jar/ {print $1; exit}')"
+        # 所有命令替换都带 || true：set -euo pipefail 下 jps/grep/lsof 非 0
+        # （进程不存在、无匹配、SIGPIPE）会让赋值语句失败，直接终止脚本
+        found="$("$jps_bin" -l 2>/dev/null | awk '/hrent-0\.0\.1-SNAPSHOT\.jar/ {print $1; exit}' || true)"
         if [ -n "$found" ]; then
             printf '%s' "$found"
             return 0
@@ -233,13 +289,13 @@ find_app_pid() {
     fi
     # 兜底：按监听端口反查（jps 缺失，或 JVM 由其他 JDK 启动时）
     if command -v lsof >/dev/null 2>&1; then
-        found="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -n 1)"
+        found="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true)"
     fi
     if [ -z "$found" ] && command -v netstat >/dev/null 2>&1; then
-        found="$(netstat -ano 2>/dev/null | grep -E "[:.]${PORT}[[:space:]].*LISTEN" | awk '{print $NF}' | head -n 1)"
+        found="$(netstat -ano 2>/dev/null | grep -E "[:.]${PORT}[[:space:]].*LISTEN" | awk '{print $NF}' | head -n 1 || true)"
         case "$found" in ''|*[!0-9]*) found="" ;; esac
     fi
-    if [ -n "$found" ] && is_java_process "$found"; then
+    if [ -n "$found" ] && is_java_process "$found" && app_pid_is_ours "$found"; then
         printf '%s' "$found"
         return 0
     fi
@@ -406,7 +462,12 @@ start_bg() {
     local running_pid
     running_pid="$(find_app_pid)"
     if [ -n "$running_pid" ]; then
-        die "服务已在运行（PID $running_pid）。如需重启请执行 ./start.sh restart"
+        # 已在运行按幂等成功返回（exit 0），与 scripts\hrent.ps1 一致——
+        # 之前 die(exit 1) 会让 CI / start.cmd 把最常见的「重复启动」判成失败
+        ok "服务已在运行（PID $running_pid），无需重复启动"
+        info "接口地址：http://localhost:${PORT}/hrent"
+        info "重启请执行 ./start.sh restart，停止请执行 ./start.sh stop"
+        return 0
     fi
     rm -f "$PID_FILE"
     if port_in_use "$PORT"; then
@@ -518,7 +579,10 @@ find_web_pid() {
     local pid=""
     if [ -f "$WEB_PID_FILE" ]; then
         pid="$(cat "$WEB_PID_FILE" 2>/dev/null || true)"
-        if web_pid_is_ours "$pid" || is_node_process "$pid"; then
+        # 只信命令行校验，不回退 is_node_process：PID 复用后碰上任意 node
+        # 进程（如别的项目、npm run build）会被误认成 dev server。
+        # 取不到命令行时由下面的端口反查兜底（那条路同样只认命令行）。
+        if web_pid_is_ours "$pid"; then
             printf '%s' "$pid"
             return 0
         fi
@@ -548,19 +612,24 @@ port_owner_pid() {
     printf ''
 }
 
-# 判断 PID 是否为本项目的前端进程。Linux 有 /proc 时校验命令行，避免 PID 复用误判；
-# 无 /proc 的平台（macOS / Git Bash）只能以 PID 文件为凭据。
+# 判断 PID 是否为本项目的前端进程：只认命令行（与 ps1 的 Test-WebPidIsOurs
+# 同口径）。有 /proc 读 /proc，无 /proc（macOS / Git Bash）用 ps -o command=；
+# 两个来源都取不到命令行时不放行——只凭 kill -0 会把 PID 复用撞上的任意
+# 进程当成「本项目的前端」。取不到时调用方会走端口反查兜底。
 web_pid_is_ours() {
-    local pid="$1"
+    local pid="$1" cmd=""
     [ -n "$pid" ] || return 1
     kill -0 "$pid" 2>/dev/null || return 1
     if [ -r "/proc/$pid/cmdline" ]; then
-        if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE 'webpack-dev-server|hrent-web'; then
-            return 0
-        fi
-        return 1
+        cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    else
+        cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
     fi
-    return 0
+    [ -n "$cmd" ] || return 1
+    case "$cmd" in
+        *webpack-dev-server*|*hrent-web*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # 前端页面探活：必须校验 HTTP 200 并禁用代理。
@@ -569,8 +638,17 @@ web_up() {
     local port="$1"
     export no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}"
     export NO_PROXY="$no_proxy"
-    command -v curl >/dev/null 2>&1 || return 1
-    [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 --noproxy '*' "http://127.0.0.1:${port}/" 2>/dev/null)" = "200" ]
+    # curl 与 wget 都要兜底（与 health_check 的降级策略一致）：
+    # 没有 curl 的最小化容器里，直接 return 1 会把「已就绪」判成超时
+    if command -v curl >/dev/null 2>&1; then
+        [ "$(curl -s -o /dev/null -w '%{http_code}' -m 3 --noproxy '*' "http://127.0.0.1:${port}/" 2>/dev/null)" = "200" ]
+        return $?
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -T 3 -O /dev/null "http://127.0.0.1:${port}/" 2>/dev/null
+        return $?
+    fi
+    return 1
 }
 
 start_web_dev() {
@@ -669,7 +747,10 @@ stop_web_dev() {
         # npm.cmd → cmd.exe → node.exe 三层，必须按进程树结束
         taskkill //F //T //PID "$pid" >/dev/null 2>&1 || true
     else
-        # npm 会派生 node，只杀父进程会留下占端口的孤儿：先杀进程组，再补一刀
+        # npm 会派生 node，只杀父进程会留下占端口的孤儿：先尝试杀进程组，
+        # 再退回单进程补刀。注意：非交互 shell 的后台作业不是进程组长，
+        # `kill -- -$pid` 对它必然 ESRCH——所以组杀失败必须 || 退回单进程，
+        # 常态走的就是这条退路；真正杀没杀干净由下方等待与端口复查把关。
         kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
         local i=0
         while [ "$i" -lt 10 ]; do
@@ -843,6 +924,13 @@ if [ -z "$CLI_WEB_PORT" ] && [ -z "${HRENT_WEB_PORT:-}" ] && [ -f "$WEB_PORT_FIL
 fi
 case "$PORT" in ''|*[!0-9]*) die "端口非法：$PORT（必须是数字）" ;; esac
 case "$WEB_PORT" in ''|*[!0-9]*) die "前端端口非法：$WEB_PORT（必须是数字）" ;; esac
+# 范围校验与 scripts\hrent.ps1 统一为 1-65535（只校验数字会被 0 / 70000 溜过去）
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    die "端口超出范围（1-65535）：$PORT"
+fi
+if [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
+    die "前端端口超出范围（1-65535）：$WEB_PORT"
+fi
 
 case "$CMD" in
     start|run|build|restart|dev)

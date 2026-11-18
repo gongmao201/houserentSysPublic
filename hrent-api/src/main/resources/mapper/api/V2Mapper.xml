@@ -355,5 +355,12 @@
         WHERE h.id = #{houseId} AND h.del_flag = 0
         LIMIT 1
     </select>
+    <!-- 回复评价：条件里带 reply 为空，避免并发双击把同一评价回复两次 -->
+    <update id="replyReview">
+        UPDATE hrent_review
+        SET reply = #{reply}, reply_at = #{replyAt}, status = 'PUBLISHED', update_time = NOW()
+        WHERE id = #{id}
+          AND (reply IS NULL OR TRIM(reply) = '')
+    </update>
 
 </mapper>

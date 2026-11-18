@@ -252,6 +252,7 @@ public class RepairService {
     }
 
     /**accept / arrive / complete / confirm / cancel 共用一条状态流转路径 */
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> transition(String id, String action, Map<String, Object> body, User user) {
         String to = ACTION_TARGET.get(action);
         if (to == null) {
@@ -278,6 +279,9 @@ public class RepairService {
         String cancelReason = null;
         Integer tenantScore = null;
         String tenantComment = null;
+        // 完成图片先收进局部变量，等状态更新成功后再落库：
+        // 抢单/并发冲突时不会留下挂在不存在的完成动作上的孤儿图片
+        List<String> completeImages = null;
         String now = LocalDateTime.now(Req.ZONE).format(SQL_TIME);
 
         if ("accept".equals(action)) {
@@ -288,7 +292,7 @@ public class RepairService {
         } else if ("complete".equals(action)) {
             completedAt = now;
             remark = Req.str(body, "remark", false, 255);
-            saveImages(id, Req.strList(body, "images", 3), "COMPLETE");
+            completeImages = Req.strList(body, "images", 3);
         } else if ("confirm".equals(action)) {
             confirmedAt = now;
             tenantScore = Req.integer(body, "score", false);
@@ -308,6 +312,7 @@ public class RepairService {
         if (affected == 0) {
             throw ApiException.conflict("工单已被其他操作更新（抢单失败），请刷新后重试");
         }
+        saveImages(id, completeImages, "COMPLETE");
         writeLog(id, from, to, user, remark == null ? action : remark);
 
         Map<String, Object> result = new LinkedHashMap<>();

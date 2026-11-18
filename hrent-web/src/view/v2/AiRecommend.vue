@@ -49,11 +49,16 @@
       </el-col>
     </el-row>
     <el-empty v-if="result && (!result.list || result.list.length === 0)" description="没有匹配房源"></el-empty>
+
+    <el-pagination v-if="result && result.total > 0" style="margin-top: 12px" background layout="total, prev, pager, next"
+                   :total="result.total" :page-size="form.pageSize" :current-page="form.pageNo"
+                   @current-change="onPageChange"></el-pagination>
   </div>
 </template>
 
 <script>
 import { v2, fen2yuan, yuan2fen } from '../../network/v2';
+import { onErr } from './common';
 
 export default {
   name: 'AiRecommend',
@@ -68,7 +73,16 @@ export default {
   },
   methods: {
     fen2yuan: fen2yuan,
+    //查询入口：回到第 1 页再发请求
     search() {
+      this.form.pageNo = 1;
+      this.fetch();
+    },
+    onPageChange(p) {
+      this.form.pageNo = p;
+      this.fetch();
+    },
+    fetch() {
       const payload = {
         query: this.form.query,
         filters: {
@@ -79,8 +93,10 @@ export default {
         pageNo: this.form.pageNo,
         pageSize: this.form.pageSize
       };
-      if (this.budgetYuan !== '' && this.budgetYuan !== null) {
-        try { payload.filters.budgetMax = yuan2fen(this.budgetYuan); }
+      //纯空格会被 Number(' ')==0 转成 0 分预算，先 trim 再判空
+      const budgetStr = String(this.budgetYuan === null || this.budgetYuan === undefined ? '' : this.budgetYuan).trim();
+      if (budgetStr !== '') {
+        try { payload.filters.budgetMax = yuan2fen(budgetStr); }
         catch (e) { this.$message.error(e.message); return; }
       }
       this.loading = true;
@@ -95,11 +111,7 @@ export default {
         .then(function () { this.$message.success('埋点已记录：' + action); }.bind(this))
         .catch(this.onError);
     },
-    onError(err) {
-      console.error('[v2 ai]', err);
-      this.$message.error((err && err.message ? err.message : '请求失败') +
-        (err && err.traceId ? '（traceId: ' + err.traceId + '）' : ''));
-    }
+    onError: function (err) { onErr(this, err, 'ai'); }
   }
 };
 </script>

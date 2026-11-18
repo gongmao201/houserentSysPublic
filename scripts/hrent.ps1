@@ -156,7 +156,12 @@ function Import-EnvFile {
             }
         }
         if ($key -match '^[A-Za-z_][A-Za-z0-9_]*$') {
-            Set-Item -Path ("Env:" + $key) -Value $val
+            # 已存在的系统环境变量优先（见 .env.example）：已有非空值时不覆盖，
+            # .env 只补缺失项——与 start.sh 的 load_env_file 行为保持一致。
+            $existing = [System.Environment]::GetEnvironmentVariable($key)
+            if ([string]::IsNullOrEmpty($existing)) {
+                Set-Item -Path ("Env:" + $key) -Value $val
+            }
         }
     }
 }
@@ -332,6 +337,52 @@ function Get-PortOwnerPid {
     return 0
 }
 
+# 后端 PID 归属校验：PID 会被系统复用到别的 java 进程上，仅看进程名不够，
+# 必须比对启动命令行里的主 jar 名；取不到命令行时（权限/WMI 异常）才退回
+# 进程名判断。stop 侧更严格（取不到命令行宁可跳过，见 Stop-App）。
+function Test-AppPidIsOurs {
+    param([int]$ProcId)
+    if ($ProcId -le 0) { return $false }
+    $proc = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
+    if (-not $proc) { return $false }
+    $cmdLine = $null
+    try {
+        $cim = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $ProcId) -ErrorAction SilentlyContinue
+        if ($cim) { $cmdLine = [string]$cim.CommandLine }
+    } catch { $cmdLine = $null }
+    if ($cmdLine) { return [bool]($cmdLine.Contains("hrent-0.0.1-SNAPSHOT.jar")) }
+    try { return [bool]($proc.ProcessName -match '^java') } catch { return $false }
+}
+
+# PID 文件缺失/过期时的兜底：按后端监听端口反查 PID，并确认命令行确实是本
+# 项目的 jar——端口 + 命令行双重确认，避免"文件被删就误报未运行"，也不会把
+# 同端口上的其他程序认成本服务（与 start.sh 的 find_app_pid 兜底逻辑对齐）。
+# 注意不能复用 Get-PortOwnerPid：它按 ^node 过滤，只找前端。
+function Find-AppPidByPort {
+    param([int]$Port)
+    $candidates = @()
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        foreach ($c in $conn) { $candidates += [int]$c.OwningProcess }
+    } catch { }
+    if ($candidates.Count -eq 0) {
+        try {
+            $lines = netstat -ano 2>$null | Select-String -Pattern (":" + $Port + "\s+.*LISTENING")
+            foreach ($l in $lines) {
+                $parts = @(([string]$l.Line).Trim() -split '\s+')
+                if ($parts.Count -lt 2) { continue }
+                $id = 0
+                if ([int]::TryParse($parts[$parts.Count - 1], [ref]$id)) { $candidates += $id }
+            }
+        } catch { }
+    }
+    foreach ($id in ($candidates | Select-Object -Unique)) {
+        if ($id -le 0) { continue }
+        if (Test-AppPidIsOurs -ProcId $id) { return $id }
+    }
+    return 0
+}
+
 # 前端真实 PID：先信 PID 文件，其次按端口反查
 function Find-WebPid {
     if (Test-Path -LiteralPath $WebPidFile) {
@@ -461,8 +512,10 @@ function Test-WebPidIsOurs {
         $cim = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $ProcId) -ErrorAction SilentlyContinue
         if ($cim -and $cim.CommandLine -and ($cim.CommandLine -match 'webpack-dev-server|hrent-web')) { return $true }
     } catch {
-        # 取不到命令行时退回名称判断（有 PID 文件兜底，不会命中无关进程）
-        return ($proc.ProcessName -match '^(node|cmd)$')
+        # 取不到命令行时不做任何进程名放行：Cim 异常常与环境异常同时出现，
+        # 此时按 node|cmd 名字判定 + taskkill /F /T 会连整棵无关子树强杀。
+        # 交给 Find-WebPid 的端口反查路径交叉确认（那里同样只认命令行）。
+        return $false
     }
     return $false
 }
@@ -583,6 +636,9 @@ function Start-WebDev {
     Write-Host ""
     Write-Warn ("等待 180 秒仍未就绪，进程仍在运行（PID " + $proc.Id + "）。")
     Write-Warn "执行 start.cmd logs --web 查看前端日志。"
+    # 超时按失败处理（exit 1），与 start.sh 的 return 1、后端 60 秒等待超时
+    # 的 Die(exit 1) 保持一致——否则调用方会把"没起来"当成成功。
+    exit 1
 }
 
 function Stop-WebDev {
@@ -595,8 +651,11 @@ function Stop-WebDev {
         return
     }
     Write-Info ("停止前端开发服务器（PID " + $procId + "）...")
-    # npm.cmd -> cmd.exe -> node.exe 三层，必须按进程树结束，否则 node 变孤儿进程继续占端口
-    & taskkill /F /T /PID $procId 2>&1 | Out-Null
+    # npm.cmd -> cmd.exe -> node.exe 三层，必须按进程树结束，否则 node 变孤儿进程继续占端口。
+    # 局部容错：ErrorActionPreference=Stop 下 2>&1 会把 taskkill 的 stderr 变成终止性
+    # NativeCommandError；这里吞掉后仍以下方 Get-Process / 端口复查复核真实结果
+    # （等价 start.sh 的 kill || true）。
+    try { & taskkill /F /T /PID $procId 2>&1 | Out-Null } catch { }
     $i = 0
     while ($i -lt 10) {
         if (-not (Get-Process -Id $procId -ErrorAction SilentlyContinue)) { break }
@@ -607,7 +666,7 @@ function Stop-WebDev {
     $left = Get-PortOwnerPid -Port $WebPort
     if ($left -gt 0) {
         Write-Info ("结束残留前端进程 PID " + $left)
-        & taskkill /F /T /PID $left 2>&1 | Out-Null
+        try { & taskkill /F /T /PID $left 2>&1 | Out-Null } catch { }
     }
     Remove-Item -LiteralPath $WebPidFile -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $WebPortFile -Force -ErrorAction SilentlyContinue
@@ -705,12 +764,10 @@ function Start-App {
         $oldId = 0
         if ($old) { [void][int]::TryParse(([string]$old).Trim(), [ref]$oldId) }
         if ($oldId -gt 0) {
-            $proc = Get-Process -Id $oldId -ErrorAction SilentlyContinue
-            # PID 会被系统复用：只有同名 java 进程才认作本服务，否则当过期 PID 清理
-            $isOurs = $false
-            if ($proc) {
-                try { $isOurs = ($proc.ProcessName -match '^java') } catch { $isOurs = $false }
-            }
+            # PID 会被系统复用：只看「java 同名」会把别的 Java 程序认成本服务，
+            # 必须比对启动命令行里的主 jar 名（取不到命令行才退回进程名），
+            # 否则 status/start 都会谎报「已在运行」。
+            $isOurs = Test-AppPidIsOurs -ProcId $oldId
             if ($isOurs) {
                 # 真实端口从进程命令行取（脚本启动时显式传了 --server.port），
                 # 否则 `start.cmd --port 9999` 在服务已占用 8888 时会谎报 9999。
@@ -741,6 +798,7 @@ function Start-App {
                 Write-Info "重启请执行 start.cmd restart，停止请执行 start.cmd stop"
                 return
             }
+            Write-Info ("PID " + $oldId + " 已失效（进程不存在或非本服务），清理 PID 文件。")
         }
         Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
     }
@@ -821,33 +879,46 @@ function Start-AppForeground {
 }
 
 function Stop-App {
-    if (-not (Test-Path -LiteralPath $PidFile)) {
-        Write-Info "未找到 PID 文件（服务可能未运行）。"
-        return
-    }
-    $raw = (Get-Content -LiteralPath $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+    $hasPidFile = Test-Path -LiteralPath $PidFile
     $procId = 0
-    if ($raw) { [void][int]::TryParse(([string]$raw).Trim(), [ref]$procId) }
+    if ($hasPidFile) {
+        $raw = (Get-Content -LiteralPath $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($raw) { [void][int]::TryParse(([string]$raw).Trim(), [ref]$procId) }
+        if ($procId -gt 0 -and -not (Get-Process -Id $procId -ErrorAction SilentlyContinue)) { $procId = 0 }
+    }
     if ($procId -le 0) {
-        Write-Warn "PID 文件内容无效，清理。"
+        # PID 文件缺失/过期（被删、进程换号）时按监听端口兜底反查，
+        # 端口 + 命令行双重确认——避免「文件不在就误报未运行」（对齐 start.sh）
+        $procId = Find-AppPidByPort -Port $Port
+        if ($procId -gt 0) { Set-Content -LiteralPath $PidFile -Value $procId -Encoding ASCII }
+    }
+    if ($procId -le 0) {
+        if ($hasPidFile) {
+            Write-Warn "PID 文件内容无效或对应进程已退出，清理残留 PID 文件。"
+            Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Info "未找到 PID 文件（服务可能未运行）。"
+        }
+        return
+    }
+    if (-not (Get-Process -Id $procId -ErrorAction SilentlyContinue)) {
+        # 端口反查与动手停止之间进程恰好退出：清掉 PID 文件即可
         Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
         return
     }
-    $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
-    if (-not $proc) {
-        Write-Warn ("PID " + $procId + " 对应进程不存在，清理残留 PID 文件。")
-        Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
-        return
-    }
-    # 防误杀：确认是本项目的 jar
-    $isOurs = $false
+    # 防误杀：必须拿到启动命令行并确认是本项目的 jar 才动手。
+    # Cim 异常时不再兜底 $isOurs = $true 强制强杀——取不到命令行宁可跳过，
+    # 误杀 PID 复用撞上的其他 Java 进程，代价远大于让用户手动 taskkill。
+    $cmdLine = $null
     try {
         $cim = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $procId) -ErrorAction SilentlyContinue
-        if ($cim -and $cim.CommandLine -and $cim.CommandLine.Contains("hrent-0.0.1-SNAPSHOT.jar")) { $isOurs = $true }
-    } catch {
-        $isOurs = $true
+        if ($cim) { $cmdLine = [string]$cim.CommandLine }
+    } catch { $cmdLine = $null }
+    if ([string]::IsNullOrEmpty($cmdLine)) {
+        Write-Warn ("取不到 PID " + $procId + " 的启动命令行，无法确认归属，已跳过停止（防误杀）。")
+        return
     }
-    if (-not $isOurs) {
+    if (-not $cmdLine.Contains("hrent-0.0.1-SNAPSHOT.jar")) {
         Write-Warn ("PID " + $procId + " 不是本项目的 Java 进程，拒绝停止。")
         return
     }
@@ -877,13 +948,20 @@ function Show-Status {
     }
     $proc = $null
     if ($procId -gt 0) {
-        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
         # PID 会被系统复用：旧进程退出后同号 PID 可能落到任意程序上，
-        # 只看「PID 存在」会误报「运行中」，故必须校验是 java 进程。
-        if ($proc) {
-            $isJava = $false
-            try { $isJava = ($proc.ProcessName -match '^java') } catch { $isJava = $false }
-            if (-not $isJava) { $proc = $null }
+        # 只看「PID 存在」会误报「运行中」，故比对启动命令行里的主 jar 名
+        # （取不到命令行才退回进程名判断）。
+        if (Test-AppPidIsOurs -ProcId $procId) {
+            $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        }
+    }
+    if (-not $proc) {
+        # PID 文件缺失/失效时按监听端口兜底（端口 + 命令行双重确认），
+        # 否则删掉 PID 文件就会误报「未运行」——与 start.sh 的 jps/端口兜底一致
+        $found = Find-AppPidByPort -Port $Port
+        if ($found -gt 0) {
+            $procId = $found
+            $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
         }
     }
     if ($proc) {
@@ -948,6 +1026,21 @@ $rest = @($args)
 $idx = 0
 while ($idx -lt $rest.Count) {
     $a = [string]$rest[$idx]
+    # 与 start.sh 保持一致，同时支持 --port=<n> 与 --port <n> 两种写法
+    # （switch 默认非通配符匹配，--port=* 不能直接当 case，故在进 switch 前处理）
+    if ($a.StartsWith("--port=")) {
+        $rawPort = $a.Substring(7)
+        $parsedPort = 0
+        if (-not [int]::TryParse($rawPort, [ref]$parsedPort)) {
+            Die ("--port 需要 1-65535 的整数，收到：" + $rawPort)
+        }
+        if ($parsedPort -lt 1 -or $parsedPort -gt 65535) {
+            Die ("--port 超出范围（1-65535）：" + $parsedPort)
+        }
+        $CliPort = $parsedPort
+        $idx++
+        continue
+    }
     switch ($a) {
         "start"     { $Command = "start"; $idx++ }
         "dev"       { $Command = "dev"; $idx++ }
@@ -969,6 +1062,10 @@ while ($idx -lt $rest.Count) {
             # 「无法将值转换为类型 System.Int32」，而不是该改什么。
             if (-not [int]::TryParse($rawPort, [ref]$parsedPort)) {
                 Die ("--port 需要 1-65535 的整数，收到：" + $rawPort)
+            }
+            # 范围校验放在解析处，与 --web-port、start.sh 的端口校验保持一致
+            if ($parsedPort -lt 1 -or $parsedPort -gt 65535) {
+                Die ("--port 超出范围（1-65535）：" + $parsedPort)
             }
             $CliPort = $parsedPort; $idx = $idx + 2
         }
@@ -1039,7 +1136,9 @@ switch ($Command) {
     "start"   { Get-JavaInfo; Start-App; exit 0 }
     # dev = 后端 + 前端开发服务器（热更新）：改前端代码即时生效，接口走 /hrent 代理
     "dev"     { Get-JavaInfo; Start-App; Start-WebDev; exit 0 }
-    "run"     { Get-JavaInfo; Start-AppForeground; exit 0 }
+    # run 透传 java 的真实退出码（与 start.sh run_fg 的 exec 一致），
+    # 无条件 exit 0 会把启动失败/崩溃伪装成功
+    "run"     { Get-JavaInfo; Start-AppForeground; exit $LASTEXITCODE }
     "build"   { Get-JavaInfo; Invoke-Build; exit 0 }
     "restart" { Get-JavaInfo; Stop-App; Start-App; exit 0 }
     # stop 必须连前端一起停，否则 dev server 继续占着端口，下次 dev 会报端口被占用

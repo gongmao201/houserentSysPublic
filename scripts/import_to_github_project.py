@@ -74,7 +74,7 @@ def http(method, url, token, body=None):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, headers=_headers(token), method=method)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
@@ -303,17 +303,28 @@ def set_field(token, project_id, item_id, field_id, value):
 # ---------- 主流程 ----------
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "dry-run"
+    # 白名单校验：拼写错误（如 aply）不能静默落入 apply 分支产生真实副作用
+    if mode not in ("dry-run", "apply", "probe", "introspect"):
+        raise SystemExit(f"未知模式：{mode}（允许：dry-run / apply / probe / introspect）")
     project_number = None
     csv_path = DEFAULT_CSV
     args = sys.argv[2:]
     i = 0
     while i < len(args):
-        if args[i] == "--project-number":
-            project_number = int(args[i + 1]); i += 2
-        elif args[i] == "--csv":
-            csv_path = Path(args[i + 1]); i += 2
+        if args[i] in ("--project-number", "--csv"):
+            if i + 1 >= len(args):
+                raise SystemExit(f"参数 {args[i]} 缺少取值")
+            if args[i] == "--project-number":
+                try:
+                    project_number = int(args[i + 1])
+                except ValueError:
+                    raise SystemExit(f"--project-number 必须是整数：{args[i + 1]}")
+                i += 2
+            else:
+                csv_path = Path(args[i + 1])
+                i += 2
         else:
-            i += 1
+            raise SystemExit(f"未知参数：{args[i]}（支持：--project-number / --csv）")
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:

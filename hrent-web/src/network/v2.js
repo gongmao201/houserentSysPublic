@@ -86,6 +86,9 @@ function uuid() {
   });
 }
 
+// 报修幂等键缓存：{ fp, key }，同一表单内容在提交结束前复用同一键
+let repairIdem = null;
+
 export const v2 = {
   // ---- 评分 ----
   submitReview: function (data) { return call('post', '/rating/submit', data); },
@@ -102,8 +105,18 @@ export const v2 = {
 
   // ---- 报修 ----
   createRepair: function (data) {
-    // 每次提交生成幂等键；同键重复点击由后端返回首次结果
-    return call('post', '/repair', data, { headers: { 'Idempotency-Key': uuid() } });
+    // 幂等键按表单内容生成稳定键：内容不变的重复点击（含超过 300ms 的）复用同一键，
+    // 由后端 idem_key 去重；内容变化或本次提交结束后重新生成，保证不同次提交是新键
+    const fp = JSON.stringify(data || {});
+    if (!repairIdem || repairIdem.fp !== fp) {
+      repairIdem = { fp: fp, key: uuid() };
+    }
+    const entry = repairIdem;
+    const done = function () {
+      if (repairIdem === entry) { repairIdem = null; }
+    };
+    return call('post', '/repair', data, { headers: { 'Idempotency-Key': entry.key } })
+      .then(function (res) { done(); return res; }, function (err) { done(); return Promise.reject(err); });
   },
   myRepairs: function (params) { return call('get', '/repair/mine', params); },
   repairDetail: function (id) { return call('get', '/repair/' + encodeURIComponent(id)); },

@@ -28,7 +28,8 @@ public final class Rows {
         try {
             return new BigDecimal(String.valueOf(v)).longValueExact();
         } catch (ArithmeticException | NumberFormatException e) {
-            throw ApiException.bad("数值字段格式异常");
+            // DB 里的脏数据属于服务端故障，不能伪装成 400 参数错误
+            throw new IllegalStateException("数值字段格式异常：" + v, e);
         }
     }
 
@@ -42,7 +43,7 @@ public final class Rows {
         try {
             return new BigDecimal(String.valueOf(v)).intValueExact();
         } catch (ArithmeticException | NumberFormatException e) {
-            throw ApiException.bad("状态字段格式异常");
+            throw new IllegalStateException("状态字段格式异常：" + v, e);
         }
     }
 

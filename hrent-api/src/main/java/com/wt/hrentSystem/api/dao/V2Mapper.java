@@ -2,6 +2,7 @@ package com.wt.hrentSystem.api.dao;
 
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -145,4 +146,12 @@ public interface V2Mapper {
                                 @Param("tagKeywords") List<String> tagKeywords);
 
     Map<String, Object> getHouseBrief(@Param("houseId") String houseId);
+
+    /**
+     * 回复评价：UPDATE 自带「尚无回复」条件，把 check-then-act 收敛成单条原子写。
+     * 并发两次回复只有第一次能改到行，第二次影响行数为 0 → 409。
+     */
+    int replyReview(@Param("id") String id,
+                    @Param("reply") String reply,
+                    @Param("replyAt") Date replyAt);
 }

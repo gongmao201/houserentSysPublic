@@ -31,7 +31,7 @@ server {
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
 
-    # 静态资源缓存
+    # 静态资源缓存（只缓存前端构建产物；/hrent/ 下的图片由后端提供，见下）
     location ~* \.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)$ {
         expires 7d;
         add_header Cache-Control "public";
@@ -39,7 +39,9 @@ server {
     }
 
     # 后端接口与图片访问：/hrent/** 全部反代到 Spring Boot
-    location /hrent/ {
+    # 必须用 ^~ 前缀：否则上面的正则 location 会优先命中 /hrent/images/*.jpg，
+    # 在 dist 目录里找不到文件直接 404，图片永远到不了后端。
+    location ^~ /hrent/ {
         proxy_pass http://127.0.0.1:8888;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

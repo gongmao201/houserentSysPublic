@@ -42,13 +42,28 @@ if not exist "%PS1%" (
     goto :summary
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %*
+REM Escape cmd metacharacters before forwarding the command line. Percent
+REM expansion happens before special-character recognition, so the carets
+REM produced below are seen by the parser as escapes on the final line (a ^
+REM inside a quoted string survives as a literal, which is what protects
+REM quoted values). Note: a value mixing quotes with metacharacters can still
+REM misbehave, but this is strictly safer than forwarding %* raw.
+set "ARGS=%*"
+set "ARGS=%ARGS:^=^^%"
+set "ARGS=%ARGS:&=^&%"
+set "ARGS=%ARGS:|=^|%"
+set "ARGS=%ARGS:<=^<%"
+set "ARGS=%ARGS:>=^>%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %ARGS%
 set "RC=%ERRORLEVEL%"
 
 :summary
 echo.
-REM status/stop/logs return 1 by design (e.g. "not running"). Do not label that
-REM as a launcher failure - only start/run/build failures need the full dossier.
+REM Exit-code semantics of scripts\hrent.ps1: status returns 1 when the service
+REM is not running; logs returns 1 when the log file is missing; stop returns 0
+REM on success (non-zero only for a real error, e.g. process refused to die).
+REM Any non-zero code here is at most a query result, not a launcher failure,
+REM so only start/run/build failures need the full dossier.
 set "QUERY_CMD="
 if /i "%~1"=="status" set "QUERY_CMD=1"
 if /i "%~1"=="stop"   set "QUERY_CMD=1"

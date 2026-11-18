@@ -133,6 +133,17 @@ public class LeaseService {
         assertCanAccess(user, row);
         int from = Rows.intOr(row.get("statusCode"), -1);
         assertTransit(from, TERMINATED);
+        // 日期必须落在 [租约开始日, 今天]：退租日填未来会提前开启评价窗口，
+        // 填到租约开始前会让「实际租期」为负
+        LocalDate actual = LocalDate.parse(endDate, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+        if (actual.isAfter(LocalDate.now(Req.ZONE))) {
+            throw ApiException.unprocessable("实际退租日期不能晚于今天");
+        }
+        String startDate = Rows.day(row.get("startDate"));
+        if (startDate != null && !startDate.trim().isEmpty()
+                && actual.isBefore(LocalDate.parse(startDate, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE))) {
+            throw ApiException.unprocessable("实际退租日期不能早于租约开始日期（" + startDate + "）");
+        }
         transition(id, row, from, TERMINATED, V2Time.day(parsed), reason, user);
 
         LocalDate windowEnd = LocalDate.parse(endDate, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE).plusDays(30);
